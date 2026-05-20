@@ -1,5 +1,6 @@
-from pydantic_settings import BaseSettings
+#Defines the config settings for the application
 
+from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     database_url: str
