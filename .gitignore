@@ -7,8 +7,6 @@ __pycache__/
 *.pyo
 .venv/
 
-# Alembic
-alembic/versions/
 
 # OS
 .DS_Store

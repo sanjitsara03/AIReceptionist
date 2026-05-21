@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     redis_url: str
     secret_key: str
     environment: str = "development"
+    twilio_account_sid: str
+    twilio_auth_token: str
+    twilio_phone_number: str
+    anthropic_api_key: str
 
     class Config:
         env_file = ".env"

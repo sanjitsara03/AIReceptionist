@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.routes import webhooks
 
 app = FastAPI(title="AI Receptionist")
 
@@ -10,6 +11,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+app.include_router(webhooks.router)
 
 
 @app.get("/health")
