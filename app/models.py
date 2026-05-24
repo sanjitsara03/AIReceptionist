@@ -102,6 +102,7 @@ class Job(Base):
     job_type: Mapped[str] = mapped_column(String(100))
     status: Mapped[JobStatus] = mapped_column(Enum(JobStatus), default=JobStatus.pending)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reminder_sent: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
