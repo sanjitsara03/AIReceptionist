@@ -4,12 +4,13 @@ from pydantic_ai import RunContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import TimeSlot, Job, JobStatus, Customer
+from app.models import TimeSlot, Job, JobStatus, Customer, Business
 
 
 class AgentDeps(BaseModel):
     db: AsyncSession
     business_id: int
+    business: Business
     customer: Customer
 
     model_config = {"arbitrary_types_allowed": True}

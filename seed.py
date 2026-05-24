@@ -9,10 +9,13 @@ async def seed():
         # 1 Business
         business = Business(
             name="Joe's Plumbing",
-            twilio_number="+15550000001",
+            twilio_number="+18055905679",
+            services="Drain cleaning, pipe repair, water heater installation and repair, leak detection, emergency plumbing, bathroom and kitchen plumbing.",
+            hours="Monday to Friday 7am to 6pm, Saturday 8am to 2pm. Closed Sunday.",
+            address="123 Main Street, Los Angeles, CA 90001",
         )
         session.add(business)
-        await session.flush()  
+        await session.flush()
 
         # 3 Technicians
         technicians = [
@@ -23,21 +26,25 @@ async def seed():
         session.add_all(technicians)
         await session.flush()
 
-        # 10 Time Slots spread across the next 5 days, 2 per technician
+        # 30 time slots — 2 slots per technician per day for the next 10 days
         slots = []
         base = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
-        for i in range(5):
+
+        for i in range(10):
             day = base + timedelta(days=i + 1)
-            slots.append(TimeSlot(
-                technician_id=technicians[0].id,
-                start_time=day,
-                end_time=day + timedelta(hours=2),
-            ))
-            slots.append(TimeSlot(
-                technician_id=technicians[1].id,
-                start_time=day + timedelta(hours=3),
-                end_time=day + timedelta(hours=5),
-            ))
+            for tech in technicians:
+                # Morning slot
+                slots.append(TimeSlot(
+                    technician_id=tech.id,
+                    start_time=day,
+                    end_time=day + timedelta(hours=2),
+                ))
+                # Afternoon slot
+                slots.append(TimeSlot(
+                    technician_id=tech.id,
+                    start_time=day + timedelta(hours=4),
+                    end_time=day + timedelta(hours=6),
+                ))
 
         session.add_all(slots)
         await session.commit()

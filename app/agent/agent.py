@@ -1,5 +1,5 @@
 import os
-from pydantic_ai import Agent
+from pydantic_ai import Agent, RunContext
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, UserPromptPart, TextPart
 
 from app.config import settings
@@ -7,29 +7,46 @@ from app.agent.tools import AgentDeps, check_availability, book_job, reschedule_
 
 os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
 
-SYSTEM_PROMPT = """You are an AI receptionist for a home service business. Your job is to help customers via SMS.
+BASE_SYSTEM_PROMPT = """You are an AI receptionist for {business_name}. Your job is to help customers via SMS and voice calls.
+
+Business information:
+- Name: {business_name}
+- Services: {services}
+- Hours: {hours}
+- Address: {address}
 
 You can help customers:
+- Answer questions about the business, services, hours, and location
 - Book a new appointment
 - Reschedule an existing appointment
 - Cancel an appointment
-- Answer basic questions about the business
 
 When a customer wants to book, first check availability, then confirm the slot with the customer before booking.
-Keep your replies short and conversational — this is SMS, not email. Never write long paragraphs.
+Keep your replies short and conversational. Never write long paragraphs.
+Do not use emojis. Do not use markdown formatting like ** or *.
 Always be friendly and professional.
 If you are not sure about something, ask the customer to clarify."""
 
 agent = Agent(
     model="anthropic:claude-sonnet-4-6",
     deps_type=AgentDeps,
-    system_prompt=SYSTEM_PROMPT,
 )
 
 agent.tool(check_availability)
 agent.tool(book_job)
 agent.tool(reschedule_job)
 agent.tool(cancel_job)
+
+
+@agent.system_prompt
+async def build_system_prompt(ctx: RunContext[AgentDeps]) -> str:
+    b = ctx.deps.business
+    return BASE_SYSTEM_PROMPT.format(
+        business_name=b.name,
+        services=b.services or "General home services",
+        hours=b.hours or "Please call for hours",
+        address=b.address or "Please call for location",
+    )
 
 
 def build_message_history(history: list[dict]) -> list[ModelMessage]:
