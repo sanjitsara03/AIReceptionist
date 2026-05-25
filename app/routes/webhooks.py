@@ -11,7 +11,7 @@ from app.config import settings
 from app.database import get_db
 from app.events import publish
 from app.limiter import limiter
-from app.models import Business, Message, Conversation, MessageDirection
+from app.models import Business, Customer, Message, Conversation, MessageDirection
 from app.agent.agent import get_ai_reply
 from app.agent.tools import AgentDeps
 from app.services.conversation import (
@@ -109,21 +109,19 @@ async def verify_twilio_signature(request: Request) -> None:
 # ---------------------------------------------------------------------------
 # Per-business daily message cap
 # ---------------------------------------------------------------------------
-#
-# Backstop in case the signature check is bypassed (compromised auth token,
-# misconfigured business, etc.). Counts *inbound* messages today for this
-# business — if over the cap, we skip the LLM entirely.
 
 async def _over_daily_cap(db: AsyncSession, business_id: int) -> bool:
     cap = settings.daily_message_limit_per_business
     if cap <= 0:
         return False
     since = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    
     result = await db.execute(
         select(func.count(Message.id))
         .join(Conversation, Conversation.id == Message.conversation_id)
+        .join(Customer, Customer.id == Conversation.customer_id)
         .where(
-            Conversation.business_id == business_id,
+            Customer.business_id == business_id,
             Message.direction == MessageDirection.inbound,
             Message.created_at >= since,
         )
