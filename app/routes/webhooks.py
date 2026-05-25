@@ -1,12 +1,17 @@
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Request, Response, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
+from twilio.request_validator import RequestValidator
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.twiml.voice_response import VoiceResponse, Gather
 
+from app.config import settings
 from app.database import get_db
 from app.events import publish
-from app.models import Business, MessageDirection
+from app.limiter import limiter
+from app.models import Business, Message, Conversation, MessageDirection
 from app.agent.agent import get_ai_reply
 from app.agent.tools import AgentDeps
 from app.services.conversation import (
@@ -19,13 +24,78 @@ from app.services.conversation import (
 router = APIRouter()
 
 VOICE_GREETING = "Hi! You've reached our AI receptionist. How can I help you today?"
+LIMIT_REACHED_REPLY = (
+    "Sorry, this number has reached its daily message limit. "
+    "Please try again tomorrow or call directly."
+)
+
+
+# ---------------------------------------------------------------------------
+# Twilio request signature validation
+# ---------------------------------------------------------------------------
+#
+# Twilio signs every webhook POST with HMAC-SHA1 over the full URL + the
+# url-encoded form body, using our account's TWILIO_AUTH_TOKEN as the key.
+# Without this check, anyone can hit /webhooks/* with fake POSTs and burn
+# unlimited Claude API tokens. This is the single most important production
+# guard for cost control.
+
+async def verify_twilio_signature(request: Request) -> None:
+    if not settings.validate_twilio_signature:
+        return  # disabled in tests
+
+    signature = request.headers.get("X-Twilio-Signature", "")
+    # Reconstruct the URL Twilio signed against. Behind Railway's proxy the
+    # scheme can be reported as "http" — prefer X-Forwarded-Proto.
+    proto = request.headers.get("X-Forwarded-Proto", request.url.scheme)
+    host = request.headers.get("X-Forwarded-Host", request.url.netloc)
+    url = f"{proto}://{host}{request.url.path}"
+    if request.url.query:
+        url += f"?{request.url.query}"
+
+    form = await request.form()
+    form_dict = {k: v for k, v in form.items()}
+
+    validator = RequestValidator(settings.twilio_auth_token)
+    if not validator.validate(url, form_dict, signature):
+        raise HTTPException(status_code=403, detail="Invalid Twilio signature.")
+
+
+# ---------------------------------------------------------------------------
+# Per-business daily message cap
+# ---------------------------------------------------------------------------
+#
+# Backstop in case the signature check is bypassed (compromised auth token,
+# misconfigured business, etc.). Counts *inbound* messages today for this
+# business — if over the cap, we skip the LLM entirely.
+
+async def _over_daily_cap(db: AsyncSession, business_id: int) -> bool:
+    cap = settings.daily_message_limit_per_business
+    if cap <= 0:
+        return False
+    since = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    result = await db.execute(
+        select(func.count(Message.id))
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .where(
+            Conversation.business_id == business_id,
+            Message.direction == MessageDirection.inbound,
+            Message.created_at >= since,
+        )
+    )
+    return (result.scalar() or 0) >= cap
 
 
 def strip_emojis(text: str) -> str:
     return text.encode("ascii", "ignore").decode("ascii")
 
 
-@router.post("/webhooks/sms")
+# ---------------------------------------------------------------------------
+# SMS webhook
+# ---------------------------------------------------------------------------
+
+@router.post("/webhooks/sms", dependencies=[Depends(verify_twilio_signature)])
+@limiter.limit("60/minute")
 async def inbound_sms(request: Request, db: AsyncSession = Depends(get_db)):
     form = await request.form()
 
@@ -51,6 +121,15 @@ async def inbound_sms(request: Request, db: AsyncSession = Depends(get_db)):
     # Save inbound message
     await save_message(db, conversation, MessageDirection.inbound, body)
 
+    # Hard daily cap per business — skip the LLM if exceeded.
+    if await _over_daily_cap(db, business.id):
+        await save_message(db, conversation, MessageDirection.outbound, LIMIT_REACHED_REPLY)
+        await db.commit()
+        publish(business.id, "conversation.updated", {"conversation_id": conversation.id})
+        response = MessagingResponse()
+        response.message(LIMIT_REACHED_REPLY)
+        return Response(content=str(response), media_type="application/xml")
+
     # Load full history and get AI reply
     history = await load_history(db, conversation)
     deps = AgentDeps(db=db, business_id=business.id, business=business, customer=customer)
@@ -70,7 +149,12 @@ async def inbound_sms(request: Request, db: AsyncSession = Depends(get_db)):
     return Response(content=str(response), media_type="application/xml")
 
 
-@router.post("/webhooks/voice")
+# ---------------------------------------------------------------------------
+# Voice webhook — initial greeting
+# ---------------------------------------------------------------------------
+
+@router.post("/webhooks/voice", dependencies=[Depends(verify_twilio_signature)])
+@limiter.limit("60/minute")
 async def inbound_call(request: Request, db: AsyncSession = Depends(get_db)):
     form = await request.form()
     to_number = form.get("To")
@@ -96,7 +180,12 @@ async def inbound_call(request: Request, db: AsyncSession = Depends(get_db)):
     return Response(content=str(response), media_type="application/xml")
 
 
-@router.post("/webhooks/voice/respond")
+# ---------------------------------------------------------------------------
+# Voice webhook — each speech-recognition turn
+# ---------------------------------------------------------------------------
+
+@router.post("/webhooks/voice/respond", dependencies=[Depends(verify_twilio_signature)])
+@limiter.limit("120/minute")
 async def voice_respond(request: Request, db: AsyncSession = Depends(get_db)):
     form = await request.form()
 
@@ -141,6 +230,15 @@ async def voice_respond(request: Request, db: AsyncSession = Depends(get_db)):
 
     # Save what the customer said
     await save_message(db, conversation, MessageDirection.inbound, speech_result)
+
+    # Hard daily cap per business — skip the LLM if exceeded.
+    if await _over_daily_cap(db, business.id):
+        await save_message(db, conversation, MessageDirection.outbound, LIMIT_REACHED_REPLY)
+        await db.commit()
+        publish(business.id, "conversation.updated", {"conversation_id": conversation.id})
+        response.say(LIMIT_REACHED_REPLY, voice="Polly.Joanna")
+        response.hangup()
+        return Response(content=str(response), media_type="application/xml")
 
     # Get AI reply
     history = await load_history(db, conversation)

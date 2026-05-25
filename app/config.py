@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:5173,http://localhost:5174"
     frontend_url: str = "http://localhost:5173"
 
+    # --- Abuse / cost-control safety ---
+    # Validate the X-Twilio-Signature on inbound webhooks. Disable only in tests.
+    validate_twilio_signature: bool = True
+    # Hard ceiling on inbound AI-handled messages per business per UTC day.
+    # Hit → the agent is skipped and we reply with a polite "limit reached" note.
+    daily_message_limit_per_business: int = 500
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property

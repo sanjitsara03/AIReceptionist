@@ -29,6 +29,13 @@ os.environ["DATABASE_URL"] = TEST_DB_URL
 # project with fake errors from `test_unhandled_exception_returns_envelope`.
 os.environ["SENTRY_DSN"] = ""
 
+# Disable production safety guards in tests:
+#   - Twilio signature validation would require us to sign every test payload.
+#   - Rate limits would make tests order-dependent + flaky.
+# These flags are read by app.config and app.limiter at import time.
+os.environ["VALIDATE_TWILIO_SIGNATURE"] = "false"
+os.environ["RATE_LIMITS_ENABLED"] = "false"
+
 from app.database import Base, get_db          # noqa: E402
 from app.auth import get_current_business_id, get_current_auth0_id   # noqa: E402
 from app.main import app                       # noqa: E402

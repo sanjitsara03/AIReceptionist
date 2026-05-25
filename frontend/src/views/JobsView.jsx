@@ -13,11 +13,13 @@ import {
 // Jobs list view
 // ---------------------------------------------------------------------------
 
-export function JobsView({ onOpenJob }) {
+export function JobsView({ onOpenJob, creating: creatingProp = false, onCloseCreate }) {
   const { data } = useData();
   const { jobs, customers, technicians } = data;
   const [filter, setFilter] = useState("all");
-  const [creating, setCreating] = useState(false);
+  const [creatingLocal, setCreatingLocal] = useState(false);
+  const creating = creatingProp || creatingLocal;
+  const closeCreate = () => { setCreatingLocal(false); onCloseCreate?.(); };
 
   const counts = useMemo(() => {
     const c = { all: jobs.length, confirmed: 0, pending: 0, completed: 0, cancelled: 0, no_show: 0, in_progress: 0 };
@@ -47,7 +49,7 @@ export function JobsView({ onOpenJob }) {
           <p>{jobs.length} appointments — {jobs.filter((j) => j.source === "ai").length} booked by the AI.</p>
         </div>
         <div className="row-flex">
-          <button className="btn primary" onClick={() => setCreating(true)}>
+          <button className="btn primary" onClick={() => setCreatingLocal(true)}>
             <I.Plus /> New job
           </button>
         </div>
@@ -115,7 +117,7 @@ export function JobsView({ onOpenJob }) {
         </table>
       </Card>
 
-      {creating && <NewJobModal customers={customers} onClose={() => setCreating(false)} />}
+      {creating && <NewJobModal customers={customers} onClose={closeCreate} />}
     </>
   );
 }

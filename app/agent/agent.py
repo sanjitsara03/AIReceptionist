@@ -1,9 +1,16 @@
 import os
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, UserPromptPart, TextPart
+from pydantic_ai.usage import UsageLimits
 
 from app.config import settings
 from app.agent.tools import AgentDeps, check_availability, book_job, reschedule_job, cancel_job
+
+# Hard ceilings per agent run. `request_limit` caps how many LLM round-trips
+# the tool-calling loop can do; `total_tokens_limit` is a backstop on the
+# total tokens consumed in a single .run() call. Either trips → PydanticAI
+# raises and we fall back to a generic reply rather than burning more spend.
+AGENT_USAGE_LIMITS = UsageLimits(request_limit=5, total_tokens_limit=10000)
 
 os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
 
@@ -69,5 +76,24 @@ async def get_ai_reply(conversation_history: list[dict], deps: AgentDeps) -> str
     current_message = conversation_history[-1]["content"]
     history = build_message_history(conversation_history)
 
-    result = await agent.run(current_message, message_history=history, deps=deps)
-    return result.output
+    try:
+        result = await agent.run(
+            current_message,
+            message_history=history,
+            deps=deps,
+            usage_limits=AGENT_USAGE_LIMITS,
+        )
+        return result.output
+    except Exception as e:
+        # Either a usage-limit trip or a downstream provider error. Fail closed
+        # with a generic reply rather than 500-ing on Twilio (which retries).
+        # Capture explicitly so Sentry sees it (we swallow it here).
+        try:
+            import sentry_sdk
+            sentry_sdk.capture_exception(e)
+        except Exception:
+            pass
+        return (
+            "Sorry — I'm having trouble responding right now. "
+            "Please try again in a moment or call back."
+        )

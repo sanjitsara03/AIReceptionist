@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import { I } from '../icons.jsx';
 
@@ -98,7 +98,69 @@ export function Sidebar({ active, onSelect, business, counts }) {
   );
 }
 
-export function TopBar({ crumbs, title, liveCall }) {
+export function TopBar({
+  crumbs,
+  title,
+  data,
+  onNewJob,
+  onOpenJob,
+  onOpenCustomer,
+  onOpenConversation,
+}) {
+  const [query, setQuery] = useState("");
+  const [focused, setFocused] = useState(false);
+  const wrapRef = useRef(null);
+
+  // Close the dropdown when clicking outside the search wrapper.
+  useEffect(() => {
+    const onDoc = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setFocused(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  // ⌘K / Ctrl+K focuses the search input.
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        wrapRef.current?.querySelector("input")?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q || !data) return null;
+    const customers = (data.customers ?? [])
+      .filter((c) => c.name?.toLowerCase().includes(q) || c.phone?.includes(q))
+      .slice(0, 5);
+    const jobs = (data.jobs ?? [])
+      .filter((j) => String(j.id) === q || j.type?.toLowerCase().includes(q))
+      .slice(0, 5);
+    const conversations = (data.conversations ?? [])
+      .filter((c) => c.preview?.toLowerCase().includes(q))
+      .slice(0, 5);
+    return { customers, jobs, conversations };
+  }, [query, data]);
+
+  const pick = (fn) => {
+    fn();
+    setQuery("");
+    setFocused(false);
+  };
+
+  const empty =
+    results &&
+    results.customers.length === 0 &&
+    results.jobs.length === 0 &&
+    results.conversations.length === 0;
+
+  const custName = (id) => data?.customers?.find((c) => c.id === id)?.name ?? "—";
+
   return (
     <header className="topbar">
       <div>
@@ -116,14 +178,72 @@ export function TopBar({ crumbs, title, liveCall }) {
       </div>
 
       <div className="topbar-actions">
-        <LiveCallPill call={liveCall} />
-        <div className="search">
+        <div className="search" ref={wrapRef} style={{ position: "relative" }}>
           <I.Search />
-          <input placeholder="Search jobs, customers, conversations…" />
+          <input
+            placeholder="Search jobs, customers, conversations…"
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setFocused(true); }}
+            onFocus={() => setFocused(true)}
+          />
           <kbd>⌘K</kbd>
+
+          {focused && results && (
+            <div
+              style={{
+                position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0,
+                background: "var(--bg-elev)", border: "1px solid var(--border)",
+                borderRadius: "var(--r-md)", boxShadow: "0 8px 28px oklch(0 0 0 / 0.18)",
+                maxHeight: 420, overflowY: "auto", zIndex: 50, padding: 4,
+              }}
+            >
+              {empty && (
+                <div style={{ padding: "14px 12px", fontSize: 12.5, color: "var(--text-subtle)" }}>
+                  No matches for "{query}".
+                </div>
+              )}
+              {results.customers.length > 0 && (
+                <SearchGroup label="Customers">
+                  {results.customers.map((c) => (
+                    <SearchItem key={"c" + c.id} onClick={() => pick(() => onOpenCustomer?.(c.id))}>
+                      <I.User />
+                      <span>{c.name}</span>
+                      <span className="mono muted" style={{ marginLeft: "auto", fontSize: 11.5 }}>{c.phone}</span>
+                    </SearchItem>
+                  ))}
+                </SearchGroup>
+              )}
+              {results.jobs.length > 0 && (
+                <SearchGroup label="Jobs">
+                  {results.jobs.map((j) => (
+                    <SearchItem key={"j" + j.id} onClick={() => pick(() => onOpenJob?.(j.id))}>
+                      <I.Briefcase />
+                      <span className="mono" style={{ color: "var(--text-subtle)" }}>#{j.id}</span>
+                      <span>{j.type}</span>
+                      <span className="muted" style={{ marginLeft: "auto", fontSize: 11.5 }}>
+                        {custName(j.customer_id)} · {j.date}
+                      </span>
+                    </SearchItem>
+                  ))}
+                </SearchGroup>
+              )}
+              {results.conversations.length > 0 && (
+                <SearchGroup label="Conversations">
+                  {results.conversations.map((c) => (
+                    <SearchItem key={"v" + c.id} onClick={() => pick(() => onOpenConversation?.(c.id))}>
+                      <I.Chat />
+                      <span>{custName(c.customer_id)}</span>
+                      <span className="muted" style={{ marginLeft: 8, fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                        {c.preview}
+                      </span>
+                    </SearchItem>
+                  ))}
+                </SearchGroup>
+              )}
+            </div>
+          )}
         </div>
-        <button className="icon-btn" title="Notifications"><I.Bell /></button>
-        <button className="btn">
+        <button className="btn" onClick={() => onNewJob?.()}>
           <I.Plus /> New job
         </button>
       </div>
@@ -131,21 +251,33 @@ export function TopBar({ crumbs, title, liveCall }) {
   );
 }
 
-function LiveCallPill({ call }) {
-  if (!call) {
-    return (
-      <div className="live-pill" title="AI is idle">
-        <span className="live-dot idle" />
-        <span>AI idle</span>
-      </div>
-    );
-  }
+function SearchGroup({ label, children }) {
   return (
-    <div className="live-pill" title="AI is on a call">
-      <span className="live-dot" />
-      <span>AI on call</span>
-      <span className="who">· {call.who} · {call.duration}</span>
+    <div style={{ padding: "6px 0" }}>
+      <div style={{
+        fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase",
+        color: "var(--text-subtle)", padding: "4px 10px 6px",
+      }}>{label}</div>
+      {children}
     </div>
+  );
+}
+
+function SearchItem({ children, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex", alignItems: "center", gap: 8, width: "100%",
+        padding: "8px 10px", border: 0, background: "transparent",
+        cursor: "pointer", borderRadius: 6, fontSize: 13, color: "var(--text)",
+        textAlign: "left",
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-hover, oklch(0.96 0.005 250))")}
+      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+    >
+      {children}
+    </button>
   );
 }
 

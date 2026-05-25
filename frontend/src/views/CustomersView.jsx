@@ -1,13 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { I } from '../icons.jsx';
 import { StatusBadge, Channel, Avatar, Card } from '../components/Shell.jsx';
 import { useData } from '../DataContext.jsx';
 
-export function CustomersView() {
+export function CustomersView({ focusCustomerId }) {
   const { data } = useData();
   const { customers, jobs, conversations } = data;
-  const [selected, setSelected] = useState(customers[0]?.id ?? null);
+  const [selected, setSelected] = useState(focusCustomerId ?? customers[0]?.id ?? null);
   const [query, setQuery] = useState("");
+
+  // If parent navigates here via search or "Open customer", focus that row.
+  useEffect(() => {
+    if (focusCustomerId != null) setSelected(focusCustomerId);
+  }, [focusCustomerId]);
 
   if (customers.length === 0) {
     return (

@@ -1,10 +1,11 @@
 import secrets
 from datetime import timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
+from app.limiter import limiter
 from app.models import Invite, Business
 from app.schemas import InviteResponse
 from app.config import settings
@@ -43,7 +44,8 @@ async def create_invite(business_id: int, expires_in_days: int = 7, db: AsyncSes
 
 
 @router.get("/{token}", response_model=InviteResponse)
-async def get_invite(token: str, db: AsyncSession = Depends(get_db)):
+@limiter.limit("20/minute")
+async def get_invite(request: Request, token: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Invite).where(Invite.token == token).options()
     )

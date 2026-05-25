@@ -1,13 +1,24 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { I } from '../icons.jsx';
 import { Channel, Avatar } from '../components/Shell.jsx';
 import { useData } from '../DataContext.jsx';
 
-export function ConversationsView() {
-  const { data } = useData();
+export function ConversationsView({ focusConversationId, onOpenCustomer }) {
+  const { data, reload } = useData();
   const { conversations, customers } = data;
-  const [selected, setSelected] = useState(conversations[0]?.id ?? null);
+  const [selected, setSelected] = useState(focusConversationId ?? conversations[0]?.id ?? null);
   const [filter, setFilter] = useState("all");
+  const [refreshing, setRefreshing] = useState(false);
+
+  // If the parent navigates here via global search, jump to that conversation.
+  useEffect(() => {
+    if (focusConversationId != null) setSelected(focusConversationId);
+  }, [focusConversationId]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try { await reload(); } finally { setRefreshing(false); }
+  };
 
   if (conversations.length === 0) {
     return (
@@ -40,8 +51,9 @@ export function ConversationsView() {
           <p>SMS and voice transcripts handled by the AI receptionist.</p>
         </div>
         <div className="row-flex">
-          <button className="btn ghost"><I.Refresh /> Refresh</button>
-          <button className="btn"><I.Download /> Export</button>
+          <button className="btn ghost" onClick={onRefresh} disabled={refreshing}>
+            <I.Refresh /> {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
         </div>
       </div>
 
@@ -102,8 +114,13 @@ export function ConversationsView() {
               {conv.duration && <> · {conv.duration}</>}
             </span>
             <div className="h-actions">
-              <button className="btn ghost"><I.Phone /> Call back</button>
-              <button className="btn"><I.User /> Open customer</button>
+              <button
+                className="btn"
+                onClick={() => cust && onOpenCustomer?.(cust.id)}
+                disabled={!cust}
+              >
+                <I.User /> Open customer
+              </button>
             </div>
           </div>
 

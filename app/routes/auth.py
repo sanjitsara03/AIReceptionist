@@ -1,9 +1,10 @@
 from datetime import timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
+from app.limiter import limiter
 from app.models import Business, Invite
 from app.auth import get_current_auth0_id
 from app.schemas import BusinessResponse
@@ -23,7 +24,9 @@ async def get_me(
 
 
 @router.post("/claim", response_model=BusinessResponse)
+@limiter.limit("10/minute")
 async def claim_business(
+    request: Request,
     invite_token: str,
     auth0_id: str = Depends(get_current_auth0_id),
     db: AsyncSession = Depends(get_db),

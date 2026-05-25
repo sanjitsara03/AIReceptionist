@@ -1,7 +1,10 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
 from app.config import settings
+from app.limiter import limiter
 from app.middleware.errors import unhandled_exception_handler
 from app.routes import webhooks, jobs, customers, dashboard, technicians, conversations, businesses, auth, invites, events, timeslots, admin
 from app.scheduler import start_scheduler, stop_scheduler
@@ -20,6 +23,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AI Receptionist", lifespan=lifespan)
+
+# Rate limiting — slowapi needs the limiter on app.state, plus a handler that
+# turns RateLimitExceeded into a 429 response with a Retry-After header.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
