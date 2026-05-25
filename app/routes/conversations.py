@@ -125,7 +125,7 @@ async def send_owner_reply(
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"SMS provider error: {e}")
 
-    message = await save_message(db, conversation, MessageDirection.outbound, body)
+    message = await save_message(db, conversation.id, MessageDirection.outbound, body)
     await db.commit()
     await db.refresh(message)
 

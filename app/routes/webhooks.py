@@ -161,31 +161,33 @@ async def inbound_sms(request: Request, db: AsyncSession = Depends(get_db)):
     customer = await get_or_create_customer(db, business.id, from_number)
     conversation = await get_or_create_conversation(db, customer, channel="sms")
 
+    # Capture IDs as raw ints — agent.run() may rollback the session and expire ORM objects.
+    business_id = business.id
+    conversation_id = conversation.id
+
     # Persist the inbound message in its own transaction so an agent crash can't lose it.
-    await save_message(db, conversation, MessageDirection.inbound, body)
+    await save_message(db, conversation_id, MessageDirection.inbound, body)
     await db.commit()
 
     # Hard daily cap per business — skip the LLM if exceeded.
-    if await _over_daily_cap(db, business.id):
-        await save_message(db, conversation, MessageDirection.outbound, LIMIT_REACHED_REPLY)
+    if await _over_daily_cap(db, business_id):
+        await save_message(db, conversation_id, MessageDirection.outbound, LIMIT_REACHED_REPLY)
         await db.commit()
-        publish(business.id, "conversation.updated", {"conversation_id": conversation.id})
+        publish(business_id, "conversation.updated", {"conversation_id": conversation_id})
         response = MessagingResponse()
         response.message(LIMIT_REACHED_REPLY)
         return Response(content=str(response), media_type="application/xml")
 
     # Load full history and get AI reply
     history = await load_history(db, conversation)
-    deps = AgentDeps(db=db, business_id=business.id, business=business, customer=customer)
+    deps = AgentDeps(db=db, business_id=business_id, business=business, customer=customer)
     reply = await get_ai_reply(history, deps)
 
-    # Save outbound message
-    await save_message(db, conversation, MessageDirection.outbound, reply)
-
+    # Save outbound — uses int IDs so it works even if the agent rolled back.
+    await save_message(db, conversation_id, MessageDirection.outbound, reply)
     await db.commit()
 
-    # Notify any connected dashboard for this business
-    publish(business.id, "conversation.updated", {"conversation_id": conversation.id})
+    publish(business_id, "conversation.updated", {"conversation_id": conversation_id})
 
     response = MessagingResponse()
     response.message(reply)
@@ -272,29 +274,33 @@ async def voice_respond(request: Request, db: AsyncSession = Depends(get_db)):
     customer = await get_or_create_customer(db, business.id, from_number)
     conversation = await get_or_create_conversation(db, customer, channel="voice")
 
+    # Capture IDs as raw ints — agent.run() may rollback the session and expire ORM objects.
+    business_id = business.id
+    conversation_id = conversation.id
+
     # Persist the inbound message in its own transaction so an agent crash can't lose it.
-    await save_message(db, conversation, MessageDirection.inbound, speech_result)
+    await save_message(db, conversation_id, MessageDirection.inbound, speech_result)
     await db.commit()
 
     # Hard daily cap per business — skip the LLM if exceeded.
-    if await _over_daily_cap(db, business.id):
-        await save_message(db, conversation, MessageDirection.outbound, LIMIT_REACHED_REPLY)
+    if await _over_daily_cap(db, business_id):
+        await save_message(db, conversation_id, MessageDirection.outbound, LIMIT_REACHED_REPLY)
         await db.commit()
-        publish(business.id, "conversation.updated", {"conversation_id": conversation.id})
+        publish(business_id, "conversation.updated", {"conversation_id": conversation_id})
         response.say(LIMIT_REACHED_REPLY, voice="Polly.Joanna")
         response.hangup()
         return Response(content=str(response), media_type="application/xml")
 
     # Get AI reply
     history = await load_history(db, conversation)
-    deps = AgentDeps(db=db, business_id=business.id, business=business, customer=customer)
+    deps = AgentDeps(db=db, business_id=business_id, business=business, customer=customer)
     reply = await get_ai_reply(history, deps)
 
-    # Save AI reply
-    await save_message(db, conversation, MessageDirection.outbound, reply)
+    # Save AI reply — uses int IDs so it works even if the agent rolled back.
+    await save_message(db, conversation_id, MessageDirection.outbound, reply)
     await db.commit()
 
-    publish(business.id, "conversation.updated", {"conversation_id": conversation.id})
+    publish(business_id, "conversation.updated", {"conversation_id": conversation_id})
 
     # Speak the reply and listen again
     gather = Gather(

@@ -69,8 +69,10 @@ async def load_history(db: AsyncSession, conversation: Conversation) -> list[dic
     return history
 
 
-async def save_message(db: AsyncSession, conversation: Conversation, direction: MessageDirection, body: str) -> Message:
-    message = Message(conversation_id=conversation.id, direction=direction, body=body)
+async def save_message(db: AsyncSession, conversation_id: int, direction: MessageDirection, body: str) -> Message:
+    # Takes a raw int (not the Conversation ORM object) so callers can keep
+    # working even if the session was rolled back and the ORM object expired.
+    message = Message(conversation_id=conversation_id, direction=direction, body=body)
     db.add(message)
     await db.flush()
     return message
