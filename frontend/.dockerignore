@@ -1,0 +1,20 @@
+# Patterns excluded from the Docker build context for the frontend service.
+# Build context = the `frontend/` directory (because Railway's Root Directory is set to frontend).
+
+# --- Secrets (CRITICAL) ---
+.env
+.env.*
+
+# --- Will be regenerated inside the container ---
+node_modules/
+dist/
+
+# --- IDE / OS noise ---
+.vscode/
+.idea/
+.DS_Store
+
+# --- Logs / caches ---
+npm-debug.log*
+.npm/
+.cache/
