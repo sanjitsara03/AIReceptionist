@@ -8,7 +8,7 @@ from app.models import TimeSlot, Job, JobStatus, Customer, Business, Technician
 from app.events import publish
 
 
-# Rough estimates by job type — used by book_job so dashboard revenue isn't 0.
+# Rough price estimates by job type — used so dashboard revenue isn't always 0.
 JOB_ESTIMATES = {
     "drain cleaning": 180,
     "pipe repair": 380,
@@ -24,7 +24,7 @@ JOB_ESTIMATES = {
 
 
 def _estimate_for(job_type: str) -> int | None:
-    """Look up a price estimate for a job type. Match on substring, case-insensitive."""
+    # Case-insensitive substring match against the JOB_ESTIMATES keys.
     key = job_type.lower().strip()
     if key in JOB_ESTIMATES:
         return JOB_ESTIMATES[key]
@@ -43,8 +43,37 @@ class AgentDeps(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
 
+async def list_my_appointments(ctx: RunContext[AgentDeps]) -> str:
+    # Caller's own upcoming jobs — agent must call this instead of asking for a "job ID".
+    db = ctx.deps.db
+
+    active_statuses = [JobStatus.confirmed, JobStatus.pending, JobStatus.in_progress]
+    result = await db.execute(
+        select(Job, TimeSlot)
+        .join(TimeSlot, Job.time_slot_id == TimeSlot.id)
+        .where(
+            Job.customer_id == ctx.deps.customer.id,
+            Job.business_id == ctx.deps.business_id,
+            Job.status.in_(active_statuses),
+            TimeSlot.start_time >= datetime.now(timezone.utc),
+        )
+        .order_by(TimeSlot.start_time.asc())
+    )
+    rows = result.all()
+
+    if not rows:
+        return "No upcoming appointments on file for this phone number."
+
+    lines = [
+        f"Job {job.id}: {job.job_type} on "
+        f"{slot.start_time.strftime('%A %b %d at %I:%M %p')} (status: {job.status.value})"
+        for job, slot in rows
+    ]
+    return "Your upcoming appointments:\n" + "\n".join(lines)
+
+
 async def check_availability(ctx: RunContext[AgentDeps]) -> str:
-    """Return the next 5 available time slots for THIS business only."""
+    # Next 5 available slots for THIS business only.
     result = await ctx.deps.db.execute(
         select(TimeSlot)
         .join(Technician, TimeSlot.technician_id == Technician.id)
@@ -69,7 +98,7 @@ async def check_availability(ctx: RunContext[AgentDeps]) -> str:
 
 
 async def book_job(ctx: RunContext[AgentDeps], slot_id: int, job_type: str) -> str:
-    """Book a job for the customer at the given time slot — only if the slot belongs to THIS business."""
+    # Book a job for the caller — slot must belong to THIS business.
     db = ctx.deps.db
 
     result = await db.execute(
@@ -109,7 +138,7 @@ async def book_job(ctx: RunContext[AgentDeps], slot_id: int, job_type: str) -> s
 
 
 async def reschedule_job(ctx: RunContext[AgentDeps], job_id: int, new_slot_id: int) -> str:
-    """Reschedule an existing job — both the job and the new slot must belong to THIS business."""
+    # Reschedule — job AND new slot must both belong to THIS business.
     db = ctx.deps.db
 
     job_result = await db.execute(
@@ -138,7 +167,7 @@ async def reschedule_job(ctx: RunContext[AgentDeps], job_id: int, new_slot_id: i
     if not new_slot:
         return "That time slot is not available. Please choose another."
 
-    # Free up old slot
+    # Free the previously held slot before claiming the new one.
     if job.time_slot_id:
         old_slot_result = await db.execute(select(TimeSlot).where(TimeSlot.id == job.time_slot_id))
         old_slot = old_slot_result.scalar_one_or_none()
@@ -156,7 +185,7 @@ async def reschedule_job(ctx: RunContext[AgentDeps], job_id: int, new_slot_id: i
 
 
 async def cancel_job(ctx: RunContext[AgentDeps], job_id: int) -> str:
-    """Cancel an existing job — must belong to THIS business."""
+    # Cancel — must belong to THIS business.
     db = ctx.deps.db
 
     job_result = await db.execute(
@@ -173,6 +202,7 @@ async def cancel_job(ctx: RunContext[AgentDeps], job_id: int) -> str:
 
     job.status = JobStatus.cancelled
 
+    # Free the slot so other customers can book it.
     if job.time_slot_id:
         slot_result = await db.execute(select(TimeSlot).where(TimeSlot.id == job.time_slot_id))
         slot = slot_result.scalar_one_or_none()

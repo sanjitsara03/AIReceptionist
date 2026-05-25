@@ -232,3 +232,94 @@ async def test_create_job_missing_required_field(client, business, db):
     # Missing time_slot_id
     r = await client.post("/jobs", json={"customer_id": cust.id, "job_type": "Drain cleaning"})
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Agent tool: list_my_appointments
+# ---------------------------------------------------------------------------
+# Regression tests for the bug where the AI asked callers for a "job ID" they
+# couldn't possibly know, because no tool existed to look up appointments by
+# the caller's phone number.
+
+async def test_list_my_appointments_returns_active_jobs(business, db):
+    from app.agent.tools import AgentDeps, list_my_appointments
+    from pydantic_ai import RunContext
+
+    cust = (await db.execute(
+        select(Customer).where(Customer.business_id == business.id).limit(1)
+    )).scalar_one()
+
+    # Create one confirmed (future) + one cancelled (future) + one completed (past).
+    # Only the confirmed-future one should appear.
+    await _make_job(db, business, status=JobStatus.confirmed)
+    await _make_job(db, business, status=JobStatus.cancelled)
+    await db.commit()
+
+    deps = AgentDeps(db=db, business_id=business.id, business=business, customer=cust)
+    ctx = RunContext(deps=deps, model=None, usage=None, prompt=None)
+    output = await list_my_appointments(ctx)
+
+    assert "Your upcoming appointments" in output
+    assert "Drain cleaning" in output
+    # Only the confirmed job is listed (we made 2, but only one is active).
+    assert output.count("Job ") == 1
+
+
+async def test_list_my_appointments_empty(business, db):
+    from app.agent.tools import AgentDeps, list_my_appointments
+    from pydantic_ai import RunContext
+
+    cust = (await db.execute(
+        select(Customer).where(Customer.business_id == business.id).limit(1)
+    )).scalar_one()
+
+    deps = AgentDeps(db=db, business_id=business.id, business=business, customer=cust)
+    ctx = RunContext(deps=deps, model=None, usage=None, prompt=None)
+    output = await list_my_appointments(ctx)
+
+    assert "No upcoming appointments" in output
+
+
+async def test_list_my_appointments_is_per_customer(business, db):
+    """A customer's lookup must NOT return another customer's appointments."""
+    from app.agent.tools import AgentDeps, list_my_appointments
+    from pydantic_ai import RunContext
+
+    # The default fixture creates one customer — make a second one with their own job.
+    other_cust = Customer(business_id=business.id, name="Other Person", phone="+15550008888")
+    db.add(other_cust)
+    await db.flush()
+
+    tech = (await db.execute(
+        select(Technician).where(Technician.business_id == business.id).limit(1)
+    )).scalar_one()
+    now = datetime.now(timezone.utc)
+    slot = TimeSlot(
+        technician_id=tech.id,
+        start_time=now + timedelta(hours=5),
+        end_time=now + timedelta(hours=6),
+        is_available=False,
+    )
+    db.add(slot)
+    await db.flush()
+    db.add(Job(
+        business_id=business.id,
+        customer_id=other_cust.id,
+        technician_id=tech.id,
+        time_slot_id=slot.id,
+        job_type="Pipe repair",
+        status=JobStatus.confirmed,
+        source="ai",
+    ))
+    await db.commit()
+
+    # Look up appointments for the ORIGINAL test customer — should be empty.
+    cust = (await db.execute(
+        select(Customer).where(Customer.business_id == business.id, Customer.phone != "+15550008888").limit(1)
+    )).scalar_one()
+    deps = AgentDeps(db=db, business_id=business.id, business=business, customer=cust)
+    ctx = RunContext(deps=deps, model=None, usage=None, prompt=None)
+    output = await list_my_appointments(ctx)
+
+    assert "Pipe repair" not in output
+    assert "No upcoming appointments" in output
