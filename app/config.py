@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     # --- Abuse / cost-control safety ---
     # Validate the X-Twilio-Signature on inbound webhooks. Disable only in tests.
     validate_twilio_signature: bool = True
+    # The PUBLIC https URL the webhooks live at — this is the exact string
+    # Twilio's HMAC is computed against. If unset we fall back to reconstructing
+    # from X-Forwarded-* headers, but Railway's proxy can make that brittle, so
+    # setting this explicitly in prod is strongly recommended.
+    # e.g. "https://aireceptionist-production-8ab7.up.railway.app"
+    webhook_base_url: str | None = None
     # Hard ceiling on inbound AI-handled messages per business per UTC day.
     # Hit → the agent is skipped and we reply with a polite "limit reached" note.
     daily_message_limit_per_business: int = 500

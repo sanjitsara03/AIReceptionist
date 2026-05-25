@@ -40,25 +40,70 @@ LIMIT_REACHED_REPLY = (
 # unlimited Claude API tokens. This is the single most important production
 # guard for cost control.
 
+def _candidate_urls(request: Request) -> list[str]:
+    """
+    Build the list of URLs to try matching the Twilio signature against.
+
+    Twilio's HMAC is over the EXACT URL it called — usually the one configured
+    in the Twilio console. Behind Railway's proxy we can't always reconstruct
+    that string byte-for-byte, so we try a few variations:
+
+      1. settings.webhook_base_url + path (the explicit, recommended source)
+      2. https + X-Forwarded-Host + path (Railway-typical)
+      3. X-Forwarded-Proto + X-Forwarded-Host + path
+      4. The raw request.url (works locally, rarely in prod)
+
+    First match wins. As long as ONE matches, the request is authentic.
+    """
+    path = request.url.path
+    qs = f"?{request.url.query}" if request.url.query else ""
+
+    fwd_host = (request.headers.get("X-Forwarded-Host") or request.url.netloc).split(",")[0].strip()
+    fwd_proto = (request.headers.get("X-Forwarded-Proto") or request.url.scheme).split(",")[0].strip()
+
+    candidates: list[str] = []
+    if settings.webhook_base_url:
+        base = settings.webhook_base_url.rstrip("/")
+        candidates.append(f"{base}{path}{qs}")
+    candidates.append(f"https://{fwd_host}{path}{qs}")
+    candidates.append(f"{fwd_proto}://{fwd_host}{path}{qs}")
+    candidates.append(str(request.url))
+
+    # De-dupe while preserving order
+    seen, unique = set(), []
+    for c in candidates:
+        if c not in seen:
+            seen.add(c)
+            unique.append(c)
+    return unique
+
+
 async def verify_twilio_signature(request: Request) -> None:
     if not settings.validate_twilio_signature:
-        return  # disabled in tests
+        return  # disabled in tests / temp override
 
     signature = request.headers.get("X-Twilio-Signature", "")
-    # Reconstruct the URL Twilio signed against. Behind Railway's proxy the
-    # scheme can be reported as "http" — prefer X-Forwarded-Proto.
-    proto = request.headers.get("X-Forwarded-Proto", request.url.scheme)
-    host = request.headers.get("X-Forwarded-Host", request.url.netloc)
-    url = f"{proto}://{host}{request.url.path}"
-    if request.url.query:
-        url += f"?{request.url.query}"
+    if not signature:
+        raise HTTPException(status_code=403, detail="Missing Twilio signature.")
 
     form = await request.form()
     form_dict = {k: v for k, v in form.items()}
 
     validator = RequestValidator(settings.twilio_auth_token)
-    if not validator.validate(url, form_dict, signature):
-        raise HTTPException(status_code=403, detail="Invalid Twilio signature.")
+    for url in _candidate_urls(request):
+        if validator.validate(url, form_dict, signature):
+            return
+
+    # Log enough context to diagnose mismatches without leaking the auth token.
+    import logging
+    logging.getLogger("twilio.signature").warning(
+        "Twilio signature mismatch. tried=%s host=%s fwd_host=%s fwd_proto=%s",
+        _candidate_urls(request),
+        request.url.netloc,
+        request.headers.get("X-Forwarded-Host"),
+        request.headers.get("X-Forwarded-Proto"),
+    )
+    raise HTTPException(status_code=403, detail="Invalid Twilio signature.")
 
 
 # ---------------------------------------------------------------------------
