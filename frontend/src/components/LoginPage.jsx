@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 
-const BASE = "/api";
+// Same env-driven base URL as api.js — in dev falls back to /api (Vite proxy),
+// in prod uses VITE_API_BASE pointing at the backend's Railway URL.
+const BASE = import.meta.env.VITE_API_BASE || "/api";
 
 export function LoginPage() {
   const { loginWithRedirect, isLoading } = useAuth0();
