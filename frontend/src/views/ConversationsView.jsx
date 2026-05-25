@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { I } from '../icons.jsx';
 import { Channel, Avatar } from '../components/Shell.jsx';
 import { useData } from '../DataContext.jsx';
+import { sendOwnerReply } from '../api.js';
 
 export function ConversationsView({ focusConversationId, onOpenCustomer }) {
-  const { data, reload } = useData();
+  const { data, reload, getToken } = useData();
   const { conversations, customers } = data;
   const [selected, setSelected] = useState(focusConversationId ?? conversations[0]?.id ?? null);
   const [filter, setFilter] = useState("all");
@@ -153,9 +154,86 @@ export function ConversationsView({ focusConversationId, onOpenCustomer }) {
               );
             })}
           </div>
+
+          {conv.channel === "sms" && (
+            <ReplyComposer conversationId={conv.id} getToken={getToken} reload={reload} />
+          )}
         </div>
       </div>
     </>
+  );
+}
+
+// SMS reply composer pinned below the thread. Owner-typed messages send as
+// real Twilio SMS from the business's number → the customer's phone, then
+// appear in the thread once `reload()` pulls them back.
+function ReplyComposer({ conversationId, getToken, reload }) {
+  const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState(null);
+
+  const send = async () => {
+    const trimmed = body.trim();
+    if (!trimmed) return;
+    setSending(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      await sendOwnerReply(token, conversationId, trimmed);
+      setBody("");
+      await reload();
+    } catch (e) {
+      setError(e.message || "Failed to send");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const onKeyDown = (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      send();
+    }
+  };
+
+  return (
+    <div style={{
+      borderTop: "1px solid var(--divider)",
+      padding: "12px 16px",
+      background: "var(--bg-elev)",
+      display: "flex", flexDirection: "column", gap: 6,
+    }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="Reply by SMS… (⌘↵ to send)"
+          rows={2}
+          disabled={sending}
+          style={{
+            flex: 1, resize: "vertical", minHeight: 38, padding: "8px 10px",
+            fontSize: 13, fontFamily: "inherit", borderRadius: 6,
+            border: "1px solid var(--border)", background: "var(--bg)",
+            color: "var(--text)",
+          }}
+        />
+        <button
+          className="btn primary"
+          onClick={send}
+          disabled={sending || !body.trim()}
+          style={{ height: 38 }}
+        >
+          {sending ? "Sending…" : "Send SMS"}
+        </button>
+      </div>
+      {error && (
+        <div style={{ fontSize: 11.5, color: "var(--error, #e53e3e)" }}>{error}</div>
+      )}
+      <div style={{ fontSize: 10.5, color: "var(--text-faint)" }}>
+        Sends from your business number — counts against your daily message limit.
+      </div>
+    </div>
   );
 }
 

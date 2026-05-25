@@ -183,6 +183,11 @@ class MessageResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MessageCreate(BaseModel):
+    """Input for POST /conversations/{id}/messages — owner-replies-by-SMS."""
+    body: str
+
+
 class ConversationResponse(BaseModel):
     id: int
     channel: str

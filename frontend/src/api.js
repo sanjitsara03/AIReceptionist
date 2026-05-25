@@ -36,6 +36,19 @@ export async function fetchTechnicians(token)      { return get("/technicians", 
 export async function fetchJobs(token)             { return get("/jobs", token); }
 export async function fetchCustomers(token)        { return get("/customers", token); }
 export async function fetchConversations(token)    { return get("/conversations", token); }
+
+export async function sendOwnerReply(token, conversationId, body) {
+  const res = await fetch(`${BASE}/conversations/${conversationId}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ body }),
+  });
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`POST /conversations/${conversationId}/messages → ${res.status}: ${detail}`);
+  }
+  return res.json();
+}
 export async function fetchDashboardSummary(token) { return get("/dashboard/summary", token); }
 export async function fetchDashboardFeed(token)    { return get("/dashboard/feed", token); }
 
