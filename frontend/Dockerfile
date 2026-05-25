@@ -14,8 +14,21 @@ RUN npm ci
 # Now copy the rest of the source.
 COPY . .
 
-# `npm run build` reads VITE_* env vars at this point and bakes them into
-# the bundle. Railway passes service env vars through to the build by default.
+# Vite env vars must be present *during the build* — Vite hard-codes them
+# into the bundle at compile time. Inside a Dockerfile, env vars are only
+# visible to RUN steps if they're declared as ARG and exported as ENV.
+# Railway passes service variables in as build args automatically; without
+# these ARG declarations they'd be silently dropped and the bundle would
+# have empty Auth0/API values (manifesting as a broken sign-in page).
+ARG VITE_AUTH0_DOMAIN
+ARG VITE_AUTH0_CLIENT_ID
+ARG VITE_AUTH0_AUDIENCE
+ARG VITE_API_BASE
+ENV VITE_AUTH0_DOMAIN=${VITE_AUTH0_DOMAIN}
+ENV VITE_AUTH0_CLIENT_ID=${VITE_AUTH0_CLIENT_ID}
+ENV VITE_AUTH0_AUDIENCE=${VITE_AUTH0_AUDIENCE}
+ENV VITE_API_BASE=${VITE_API_BASE}
+
 RUN npm run build
 
 
