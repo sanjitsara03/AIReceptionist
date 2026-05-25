@@ -1,0 +1,20 @@
+# Railway service configuration for the AI Receptionist backend.
+# Read by Railway on every deploy from this repo.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Run pending DB migrations in a one-off container BEFORE the new image takes
+# traffic. If this fails, the deploy is aborted and the old container keeps
+# serving — no broken-schema downtime.
+preDeployCommand = ["uv", "run", "alembic", "upgrade", "head"]
+
+# Railway hits this path after the new container starts. Must return 2xx
+# within healthcheckTimeout seconds, otherwise the deploy is rolled back.
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+
+# If the container ever crashes mid-life, restart it (with backoff).
+restartPolicyType = "ON_FAILURE"

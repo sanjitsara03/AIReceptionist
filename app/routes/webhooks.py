@@ -5,6 +5,7 @@ from twilio.twiml.messaging_response import MessagingResponse
 from twilio.twiml.voice_response import VoiceResponse, Gather
 
 from app.database import get_db
+from app.events import publish
 from app.models import Business, MessageDirection
 from app.agent.agent import get_ai_reply
 from app.agent.tools import AgentDeps
@@ -31,7 +32,11 @@ async def inbound_sms(request: Request, db: AsyncSession = Depends(get_db)):
     from_number = form.get("From")
     to_number = form.get("To")
     body = form.get("Body")
- 
+
+    # Twilio occasionally posts malformed/test payloads — bail early.
+    if not from_number or not to_number or not body:
+        return Response(content=str(MessagingResponse()), media_type="application/xml")
+
     # Look up business by Twilio number
     result = await db.execute(select(Business).where(Business.twilio_number == to_number))
     business = result.scalar_one_or_none()
@@ -56,6 +61,9 @@ async def inbound_sms(request: Request, db: AsyncSession = Depends(get_db)):
 
     await db.commit()
 
+    # Notify any connected dashboard for this business
+    publish(business.id, "conversation.updated", {"conversation_id": conversation.id})
+
     response = MessagingResponse()
     response.message(reply)
 
@@ -63,7 +71,18 @@ async def inbound_sms(request: Request, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/webhooks/voice")
-async def inbound_call(request: Request):
+async def inbound_call(request: Request, db: AsyncSession = Depends(get_db)):
+    form = await request.form()
+    to_number = form.get("To")
+
+    # Look up the business so we can use its custom greeting
+    greeting = VOICE_GREETING
+    if to_number:
+        result = await db.execute(select(Business).where(Business.twilio_number == to_number))
+        business = result.scalar_one_or_none()
+        if business and business.voice_greeting and business.voice_greeting.strip():
+            greeting = business.voice_greeting
+
     response = VoiceResponse()
     gather = Gather(
         input="speech",
@@ -72,7 +91,7 @@ async def inbound_call(request: Request):
         speech_timeout="auto",
         language="en-US",
     )
-    gather.say(VOICE_GREETING, voice="Polly.Joanna")
+    gather.say(greeting, voice="Polly.Joanna")
     response.append(gather)
     return Response(content=str(response), media_type="application/xml")
 
@@ -85,14 +104,35 @@ async def voice_respond(request: Request, db: AsyncSession = Depends(get_db)):
     to_number = form.get("To")
     speech_result = form.get("SpeechResult", "")
 
+    response = VoiceResponse()
+
+    # Reject malformed payloads early
+    if not from_number or not to_number:
+        response.say("Sorry, something went wrong. Goodbye.", voice="Polly.Joanna")
+        response.hangup()
+        return Response(content=str(response), media_type="application/xml")
+
+    # If the caller said nothing, prompt again rather than hitting the agent with empty input
+    if not speech_result.strip():
+        gather = Gather(
+            input="speech",
+            action="/webhooks/voice/respond",
+            method="POST",
+            speech_timeout="auto",
+            language="en-US",
+        )
+        gather.say("Sorry, I didn't catch that. Could you repeat?", voice="Polly.Joanna")
+        response.append(gather)
+        response.hangup()
+        return Response(content=str(response), media_type="application/xml")
+
     # Look up business by Twilio number
     result = await db.execute(select(Business).where(Business.twilio_number == to_number))
     business = result.scalar_one_or_none()
 
-    response = VoiceResponse()
-
     if not business:
         response.say("Sorry, we could not find your business. Goodbye.", voice="Polly.Joanna")
+        response.hangup()
         return Response(content=str(response), media_type="application/xml")
 
     # Get or create customer and conversation
@@ -110,6 +150,8 @@ async def voice_respond(request: Request, db: AsyncSession = Depends(get_db)):
     # Save AI reply
     await save_message(db, conversation, MessageDirection.outbound, reply)
     await db.commit()
+
+    publish(business.id, "conversation.updated", {"conversation_id": conversation.id})
 
     # Speak the reply and listen again
     gather = Gather(

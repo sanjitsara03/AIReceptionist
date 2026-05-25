@@ -4,7 +4,34 @@ from pydantic_ai import RunContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import TimeSlot, Job, JobStatus, Customer, Business
+from app.models import TimeSlot, Job, JobStatus, Customer, Business, Technician
+from app.events import publish
+
+
+# Rough estimates by job type — used by book_job so dashboard revenue isn't 0.
+JOB_ESTIMATES = {
+    "drain cleaning": 180,
+    "pipe repair": 380,
+    "water heater repair": 320,
+    "water heater install": 540,
+    "leak detection": 220,
+    "bathroom plumbing": 380,
+    "kitchen sink install": 290,
+    "emergency clog": 245,
+    "garbage disposal": 195,
+    "sewer line inspection": 350,
+}
+
+
+def _estimate_for(job_type: str) -> int | None:
+    """Look up a price estimate for a job type. Match on substring, case-insensitive."""
+    key = job_type.lower().strip()
+    if key in JOB_ESTIMATES:
+        return JOB_ESTIMATES[key]
+    for known, price in JOB_ESTIMATES.items():
+        if known in key or key in known:
+            return price
+    return None
 
 
 class AgentDeps(BaseModel):
@@ -17,15 +44,12 @@ class AgentDeps(BaseModel):
 
 
 async def check_availability(ctx: RunContext[AgentDeps]) -> str:
-    """Check available time slots for the business."""
+    """Return the next 5 available time slots for THIS business only."""
     result = await ctx.deps.db.execute(
         select(TimeSlot)
+        .join(Technician, TimeSlot.technician_id == Technician.id)
         .where(
-            TimeSlot.technician_id.in_(
-                select(TimeSlot.technician_id).where(
-                    TimeSlot.is_available == True
-                )
-            ),
+            Technician.business_id == ctx.deps.business_id,
             TimeSlot.is_available == True,
             TimeSlot.start_time > datetime.now(timezone.utc),
         )
@@ -37,19 +61,25 @@ async def check_availability(ctx: RunContext[AgentDeps]) -> str:
     if not slots:
         return "No available time slots at the moment."
 
-    lines = []
-    for slot in slots:
-        lines.append(f"Slot {slot.id}: {slot.start_time.strftime('%A %b %d at %I:%M %p')}")
-
+    lines = [
+        f"Slot {slot.id}: {slot.start_time.strftime('%A %b %d at %I:%M %p')}"
+        for slot in slots
+    ]
     return "Available slots:\n" + "\n".join(lines)
 
 
 async def book_job(ctx: RunContext[AgentDeps], slot_id: int, job_type: str) -> str:
-    """Book a job for the customer at the given time slot."""
+    """Book a job for the customer at the given time slot — only if the slot belongs to THIS business."""
     db = ctx.deps.db
 
     result = await db.execute(
-        select(TimeSlot).where(TimeSlot.id == slot_id, TimeSlot.is_available == True)
+        select(TimeSlot)
+        .join(Technician, TimeSlot.technician_id == Technician.id)
+        .where(
+            TimeSlot.id == slot_id,
+            TimeSlot.is_available == True,
+            Technician.business_id == ctx.deps.business_id,
+        )
     )
     slot = result.scalar_one_or_none()
 
@@ -63,21 +93,31 @@ async def book_job(ctx: RunContext[AgentDeps], slot_id: int, job_type: str) -> s
         time_slot_id=slot.id,
         job_type=job_type,
         status=JobStatus.confirmed,
+        source="ai",
+        estimate=_estimate_for(job_type),
     )
     db.add(job)
-
     slot.is_available = False
     await db.flush()
 
-    return f"Booked! Your {job_type} appointment is confirmed for {slot.start_time.strftime('%A %b %d at %I:%M %p')}. Reply STOP to opt out."
+    publish(ctx.deps.business_id, "job.created", {"job_id": job.id})
+
+    return (
+        f"Booked! Your {job_type} appointment is confirmed for "
+        f"{slot.start_time.strftime('%A %b %d at %I:%M %p')}. Reply STOP to opt out."
+    )
 
 
 async def reschedule_job(ctx: RunContext[AgentDeps], job_id: int, new_slot_id: int) -> str:
-    """Reschedule an existing job to a new time slot."""
+    """Reschedule an existing job — both the job and the new slot must belong to THIS business."""
     db = ctx.deps.db
 
     job_result = await db.execute(
-        select(Job).where(Job.id == job_id, Job.customer_id == ctx.deps.customer.id)
+        select(Job).where(
+            Job.id == job_id,
+            Job.customer_id == ctx.deps.customer.id,
+            Job.business_id == ctx.deps.business_id,
+        )
     )
     job = job_result.scalar_one_or_none()
 
@@ -85,7 +125,13 @@ async def reschedule_job(ctx: RunContext[AgentDeps], job_id: int, new_slot_id: i
         return "I couldn't find that appointment."
 
     slot_result = await db.execute(
-        select(TimeSlot).where(TimeSlot.id == new_slot_id, TimeSlot.is_available == True)
+        select(TimeSlot)
+        .join(Technician, TimeSlot.technician_id == Technician.id)
+        .where(
+            TimeSlot.id == new_slot_id,
+            TimeSlot.is_available == True,
+            Technician.business_id == ctx.deps.business_id,
+        )
     )
     new_slot = slot_result.scalar_one_or_none()
 
@@ -93,25 +139,32 @@ async def reschedule_job(ctx: RunContext[AgentDeps], job_id: int, new_slot_id: i
         return "That time slot is not available. Please choose another."
 
     # Free up old slot
-    old_slot_result = await db.execute(select(TimeSlot).where(TimeSlot.id == job.time_slot_id))
-    old_slot = old_slot_result.scalar_one_or_none()
-    if old_slot:
-        old_slot.is_available = True
+    if job.time_slot_id:
+        old_slot_result = await db.execute(select(TimeSlot).where(TimeSlot.id == job.time_slot_id))
+        old_slot = old_slot_result.scalar_one_or_none()
+        if old_slot:
+            old_slot.is_available = True
 
     job.time_slot_id = new_slot.id
     job.technician_id = new_slot.technician_id
     new_slot.is_available = False
     await db.flush()
 
+    publish(ctx.deps.business_id, "job.updated", {"job_id": job.id})
+
     return f"Rescheduled! Your appointment is now set for {new_slot.start_time.strftime('%A %b %d at %I:%M %p')}."
 
 
 async def cancel_job(ctx: RunContext[AgentDeps], job_id: int) -> str:
-    """Cancel an existing job."""
+    """Cancel an existing job — must belong to THIS business."""
     db = ctx.deps.db
 
     job_result = await db.execute(
-        select(Job).where(Job.id == job_id, Job.customer_id == ctx.deps.customer.id)
+        select(Job).where(
+            Job.id == job_id,
+            Job.customer_id == ctx.deps.customer.id,
+            Job.business_id == ctx.deps.business_id,
+        )
     )
     job = job_result.scalar_one_or_none()
 
@@ -127,4 +180,7 @@ async def cancel_job(ctx: RunContext[AgentDeps], job_id: int) -> str:
             slot.is_available = True
 
     await db.flush()
+
+    publish(ctx.deps.business_id, "job.updated", {"job_id": job.id})
+
     return "Your appointment has been cancelled. Let us know if you'd like to rebook."

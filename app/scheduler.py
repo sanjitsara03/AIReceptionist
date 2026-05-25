@@ -1,10 +1,12 @@
+import asyncio
 from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import select, func
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from twilio.rest import Client
 
 from app.database import AsyncSessionLocal
-from app.models import Job, JobStatus, Customer, Business, Technician
+from app.models import Job, JobStatus, Customer, Business, Technician, TimeSlot
 from app.config import settings
 
 scheduler = AsyncIOScheduler()
@@ -12,56 +14,69 @@ twilio_client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
 
 
 async def send_reminders():
+    """Send a 24-hour SMS reminder for confirmed jobs starting within the next 24h."""
     now = datetime.now(timezone.utc)
     window = now + timedelta(hours=24)
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(Job)
+            .join(TimeSlot, Job.time_slot_id == TimeSlot.id)
             .where(
                 Job.status == JobStatus.confirmed,
                 Job.reminder_sent == False,
-                Job.start_time >= now,
-                Job.start_time <= window,
+                TimeSlot.start_time >= now,
+                TimeSlot.start_time <= window,
+            )
+            .options(
+                selectinload(Job.customer),
+                selectinload(Job.time_slot),
             )
         )
         jobs = result.scalars().all()
 
+        sent = 0
         for job in jobs:
-            customer_result = await db.execute(select(Customer).where(Customer.id == job.customer_id))
-            customer = customer_result.scalar_one_or_none()
-
-            business_result = await db.execute(select(Business).where(Business.id == job.business_id))
+            business_result = await db.execute(
+                select(Business).where(Business.id == job.business_id)
+            )
             business = business_result.scalar_one_or_none()
 
-            if not customer or not business:
+            if not job.customer or not business or not job.time_slot:
                 continue
 
             message = (
                 f"Reminder: Your {job.job_type} appointment with {business.name} is tomorrow at "
-                f"{job.start_time.strftime('%I:%M %p')}. Reply STOP to opt out."
+                f"{job.time_slot.start_time.strftime('%I:%M %p')}. Reply STOP to opt out."
             )
 
-            twilio_client.messages.create(
+            # Twilio's SDK is sync — run it in a thread so the event loop
+            # stays responsive to incoming webhooks while we wait on Twilio.
+            await asyncio.to_thread(
+                twilio_client.messages.create,
                 body=message,
                 from_=business.twilio_number,
-                to=customer.phone,
+                to=job.customer.phone,
             )
 
             job.reminder_sent = True
+            sent += 1
 
         await db.commit()
-        print(f"[Reminders] Sent {len(jobs)} reminders.")
+        print(f"[Reminders] Sent {sent} reminders.")
 
 
 async def detect_no_shows():
+    """Mark confirmed jobs whose scheduled time has passed as no_show."""
     now = datetime.now(timezone.utc)
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(
-            select(Job).where(
+            select(Job)
+            .join(TimeSlot, Job.time_slot_id == TimeSlot.id)
+            .where(
                 Job.status == JobStatus.confirmed,
-                Job.start_time < now,
+                TimeSlot.end_time < now,
             )
         )
         jobs = result.scalars().all()
@@ -74,6 +89,7 @@ async def detect_no_shows():
 
 
 async def send_daily_digest():
+    """Send each business owner a morning summary of today's jobs."""
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1)
 
@@ -83,10 +99,12 @@ async def send_daily_digest():
 
         for business in businesses:
             result = await db.execute(
-                select(Job).where(
+                select(Job)
+                .join(TimeSlot, Job.time_slot_id == TimeSlot.id)
+                .where(
                     Job.business_id == business.id,
-                    Job.start_time >= today_start,
-                    Job.start_time < today_end,
+                    TimeSlot.start_time >= today_start,
+                    TimeSlot.start_time < today_end,
                 )
             )
             jobs = result.scalars().all()
@@ -116,7 +134,8 @@ async def send_daily_digest():
                 f"Cancelled: {cancelled}"
             )
 
-            twilio_client.messages.create(
+            await asyncio.to_thread(
+                twilio_client.messages.create,
                 body=message,
                 from_=business.twilio_number,
                 to=owner.phone,

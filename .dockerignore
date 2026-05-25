@@ -1,0 +1,55 @@
+# Patterns excluded from the Docker build context.
+# Mirrors .gitignore for most things, plus a few extras specific to containers.
+
+# --- Secrets (CRITICAL — never bake into image) ---
+.env
+.env.*
+!.env.example
+
+# --- Python build artifacts & caches ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# --- Local virtual env (we install fresh inside the container) ---
+.venv/
+venv/
+
+# --- Frontend (deployed as a separate Railway service) ---
+frontend/
+
+# --- Git ---
+.git/
+.gitignore
+.gitattributes
+
+# --- Tests (--no-dev already skips pytest, but no point shipping the code) ---
+tests/
+
+# --- IDE / OS noise ---
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*~
+
+# --- CI / tooling not needed at runtime ---
+.github/
+
+# --- Docs / repo metadata (image runs fine without these) ---
+README.md
+CLAUDE.md
+*.md
+
+# --- Docker itself ---
+Dockerfile
+.dockerignore

@@ -10,7 +10,7 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
-# --- Enums ---
+
 
 class JobStatus(str, enum.Enum):
     pending = "pending"
@@ -26,7 +26,7 @@ class MessageDirection(str, enum.Enum):
     outbound = "outbound"
 
 
-# --- Models ---
+#Models
 
 class Business(Base):
     __tablename__ = "businesses"
@@ -37,6 +37,9 @@ class Business(Base):
     services: Mapped[str | None] = mapped_column(Text, nullable=True)
     hours: Mapped[str | None] = mapped_column(Text, nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    voice_greeting: Mapped[str | None] = mapped_column(Text, nullable=True)
+    system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    owner_auth0_id: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -101,6 +104,8 @@ class Job(Base):
     time_slot_id: Mapped[int | None] = mapped_column(ForeignKey("time_slots.id"), nullable=True)
     job_type: Mapped[str] = mapped_column(String(100))
     status: Mapped[JobStatus] = mapped_column(Enum(JobStatus), default=JobStatus.pending)
+    source: Mapped[str] = mapped_column(String(20), default="ai")
+    estimate: Mapped[int | None] = mapped_column(nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     reminder_sent: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -117,11 +122,14 @@ class Conversation(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"))
+    channel: Mapped[str] = mapped_column(String(10), default="sms")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     customer: Mapped["Customer"] = relationship(back_populates="conversations")
-    messages: Mapped[list["Message"]] = relationship(back_populates="conversation")
+    messages: Mapped[list["Message"]] = relationship(
+        back_populates="conversation", order_by="Message.created_at"
+    )
 
 
 class Message(Base):
@@ -135,3 +143,16 @@ class Message(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+
+
+class Invite(Base):
+    __tablename__ = "invites"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    business_id: Mapped[int] = mapped_column(ForeignKey("businesses.id"))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    business: Mapped["Business"] = relationship()

@@ -41,6 +41,9 @@ agent.tool(cancel_job)
 @agent.system_prompt
 async def build_system_prompt(ctx: RunContext[AgentDeps]) -> str:
     b = ctx.deps.business
+    # If the business owner has set a custom prompt in Settings, use that verbatim.
+    if b.system_prompt and b.system_prompt.strip():
+        return b.system_prompt
     return BASE_SYSTEM_PROMPT.format(
         business_name=b.name,
         services=b.services or "General home services",
