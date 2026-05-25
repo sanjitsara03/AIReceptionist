@@ -22,11 +22,13 @@ async def test_summary_counts_today(client, business, db):
         select(Customer).where(Customer.business_id == business.id).limit(1)
     )).scalar_one()
 
-    # One AI-booked confirmed job scheduled later today
+    # Schedule the slot 30 minutes after "today midnight UTC" so it's always today,
+    # regardless of when the test runs. (Old logic flaked between 23:00–00:00 UTC.)
     now = datetime.now(timezone.utc)
-    later_today = now.replace(hour=23, minute=0, second=0, microsecond=0)
-    if later_today < now:
-        later_today = now + timedelta(hours=1)
+    later_today = now.replace(hour=0, minute=30, second=0, microsecond=0)
+    if later_today < now - timedelta(minutes=5):
+        # Already past 00:30 today UTC — just pick a safe slot a few minutes from now.
+        later_today = now + timedelta(minutes=5)
 
     slot = TimeSlot(technician_id=tech.id, start_time=later_today, end_time=later_today + timedelta(hours=1), is_available=False)
     db.add(slot)

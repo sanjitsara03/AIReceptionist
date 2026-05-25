@@ -161,8 +161,9 @@ async def inbound_sms(request: Request, db: AsyncSession = Depends(get_db)):
     customer = await get_or_create_customer(db, business.id, from_number)
     conversation = await get_or_create_conversation(db, customer, channel="sms")
 
-    # Save inbound message
+    # Persist the inbound message in its own transaction so an agent crash can't lose it.
     await save_message(db, conversation, MessageDirection.inbound, body)
+    await db.commit()
 
     # Hard daily cap per business — skip the LLM if exceeded.
     if await _over_daily_cap(db, business.id):
@@ -271,8 +272,9 @@ async def voice_respond(request: Request, db: AsyncSession = Depends(get_db)):
     customer = await get_or_create_customer(db, business.id, from_number)
     conversation = await get_or_create_conversation(db, customer, channel="voice")
 
-    # Save what the customer said
+    # Persist the inbound message in its own transaction so an agent crash can't lose it.
     await save_message(db, conversation, MessageDirection.inbound, speech_result)
+    await db.commit()
 
     # Hard daily cap per business — skip the LLM if exceeded.
     if await _over_daily_cap(db, business.id):

@@ -11,6 +11,21 @@ AGENT_USAGE_LIMITS = UsageLimits(request_limit=5, total_tokens_limit=10000)
 
 os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
 
+# Always appended after either BASE_SYSTEM_PROMPT or the owner's custom prompt — these are
+# operational rules (multi-tenant safety, tool usage, voice/SMS hygiene) that owners shouldn't
+# be able to override by editing their personality prompt in Settings.
+OPERATIONAL_RULES = """OPERATIONAL RULES (always follow these regardless of personality):
+
+1. NEVER ask the customer for a "job ID", "appointment ID", "confirmation number", or anything similar — they will not have one. You already know who they are from their phone number.
+   - "What appointments do I have?" → call list_my_appointments. Do not ask first.
+   - "I'd like to cancel/reschedule my appointment" → call list_my_appointments FIRST to see what they have. If they have exactly one, confirm the date/service and proceed. If multiple, ask which one (by date or service, never by ID).
+
+2. For booking: call check_availability, confirm the slot with the customer in plain language (date + time), then call book_job.
+
+3. Replies are spoken aloud via TTS or sent as SMS. No emojis. No markdown (no asterisks, no bullet symbols, no checkmarks). No long paragraphs. Speak short, conversational sentences.
+
+4. If a tool returns an error message, do not retry it more than once. Apologize and offer to have someone call the customer back."""
+
 BASE_SYSTEM_PROMPT = """You are an AI receptionist for {business_name}. Your job is to help customers via SMS and voice calls.
 
 Business information:
@@ -60,15 +75,17 @@ agent.tool(list_my_appointments)
 @agent.system_prompt
 async def build_system_prompt(ctx: RunContext[AgentDeps]) -> str:
     b = ctx.deps.business
-    # Owner-customized prompt from Settings takes precedence.
+    # Owner can customize personality; operational rules always append underneath.
     if b.system_prompt and b.system_prompt.strip():
-        return b.system_prompt
-    return BASE_SYSTEM_PROMPT.format(
-        business_name=b.name,
-        services=b.services or "General home services",
-        hours=b.hours or "Please call for hours",
-        address=b.address or "Please call for location",
-    )
+        base = b.system_prompt.strip()
+    else:
+        base = BASE_SYSTEM_PROMPT.format(
+            business_name=b.name,
+            services=b.services or "General home services",
+            hours=b.hours or "Please call for hours",
+            address=b.address or "Please call for location",
+        )
+    return base + "\n\n" + OPERATIONAL_RULES
 
 
 def build_message_history(history: list[dict]) -> list[ModelMessage]:
@@ -97,7 +114,12 @@ async def get_ai_reply(conversation_history: list[dict], deps: AgentDeps) -> str
         )
         return result.output
     except Exception as e:
-        # Fail closed with a generic reply so Twilio doesn't 500-and-retry; report to Sentry.
+        # Roll back the poisoned session — a tool's failed flush leaves it in
+        # PendingRollbackError state, which would crash the caller's save_message.
+        try:
+            await deps.db.rollback()
+        except Exception:
+            pass
         try:
             import sentry_sdk
             sentry_sdk.capture_exception(e)
