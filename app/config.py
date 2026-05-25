@@ -28,5 +28,17 @@ class Settings(BaseSettings):
         """Parse the comma-separated allowed_origins into a clean list."""
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
 
+    @property
+    def async_database_url(self) -> str:
+        """
+        SQLAlchemy + asyncpg requires `postgresql+asyncpg://` URLs.
+        Railway's Postgres add-on injects `postgresql://` — coerce so both
+        local dev (already +asyncpg) and Railway (plain) work transparently.
+        """
+        url = self.database_url
+        if url.startswith("postgresql://"):
+            return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return url
+
 
 settings = Settings()

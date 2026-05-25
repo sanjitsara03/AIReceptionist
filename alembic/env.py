@@ -6,8 +6,9 @@ from sqlalchemy import pool
 
 from alembic import context
 
+from app.config import settings
 from app.database import Base
-import app.models 
+import app.models
 
 config = context.config
 
@@ -18,9 +19,10 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url")
+    # Use the URL from settings (env-driven) — alembic.ini's hardcoded
+    # localhost URL is ignored. Works in prod (Railway) and local dev.
     context.configure(
-        url=url,
+        url=settings.async_database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -37,7 +39,7 @@ def do_run_migrations(connection):
 
 async def run_migrations_online() -> None:
     connectable = create_async_engine(
-        config.get_main_option("sqlalchemy.url"),
+        settings.async_database_url,
         poolclass=pool.NullPool,
     )
     async with connectable.connect() as connection:
