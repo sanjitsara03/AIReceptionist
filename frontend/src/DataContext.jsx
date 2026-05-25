@@ -1,6 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { AIRDATA } from "./data.js";
 import {
   fetchAuthMe,
   claimBusiness,
@@ -14,11 +13,24 @@ import {
 
 const AUDIENCE = import.meta.env.VITE_AUTH0_AUDIENCE;
 
+// Empty shape used as the initial state. We deliberately do NOT seed with
+// AIRDATA — that way, if any field is blank in the UI, it means the backend
+// didn't return it. Easier to debug "missing data" vs "fake data showing".
+const EMPTY_DATA = {
+  business: null,
+  technicians: [],
+  jobs: [],
+  customers: [],
+  conversations: [],
+  kpis: {},
+  feed: [],
+};
+
 const DataContext = createContext(null);
 
 export function DataProvider({ children }) {
   const { getAccessTokenSilently, isAuthenticated } = useAuth0();
-  const [data, setData] = useState(AIRDATA);
+  const [data, setData] = useState(EMPTY_DATA);
   const [loading, setLoading] = useState(true);
   const [usingLive, setUsingLive] = useState(false);
   const [noBusiness, setNoBusiness] = useState(false);
