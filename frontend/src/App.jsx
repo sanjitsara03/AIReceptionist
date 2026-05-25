@@ -10,6 +10,7 @@ import { JobsView, JobDrawer } from './views/JobsView.jsx';
 import { ConversationsView } from './views/ConversationsView.jsx';
 import { CustomersView } from './views/CustomersView.jsx';
 import { SettingsView } from './views/SettingsView.jsx';
+import { AdminApp } from './admin/AdminApp.jsx';
 
 const AUTH0_DOMAIN   = import.meta.env.VITE_AUTH0_DOMAIN;
 const AUTH0_CLIENT   = import.meta.env.VITE_AUTH0_CLIENT_ID;
@@ -44,6 +45,13 @@ function applyDesignTokens(t) {
 export default function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   useEffect(() => { applyDesignTokens(t); }, [t]);
+
+  // The /admin route uses a totally separate auth model (X-Admin-Secret in
+  // localStorage, no Auth0). Branch BEFORE Auth0Provider so the admin app
+  // doesn't pay the Auth0 init cost or interfere with admin sessions.
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/admin")) {
+    return <AdminApp />;
+  }
 
   return (
     <Auth0Provider

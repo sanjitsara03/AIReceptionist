@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.middleware.errors import unhandled_exception_handler
-from app.routes import webhooks, jobs, customers, dashboard, technicians, conversations, businesses, auth, invites, events, timeslots
+from app.routes import webhooks, jobs, customers, dashboard, technicians, conversations, businesses, auth, invites, events, timeslots, admin
 from app.scheduler import start_scheduler, stop_scheduler
 from app.sentry import init_sentry
 
@@ -43,6 +43,7 @@ app.include_router(technicians.router)
 app.include_router(conversations.router)
 app.include_router(dashboard.router)
 app.include_router(events.router)
+app.include_router(admin.router)
 
 
 @app.get("/health")

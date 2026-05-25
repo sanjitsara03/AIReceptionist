@@ -27,6 +27,37 @@ class BusinessUpdate(BaseModel):
     system_prompt: str | None = None
 
 
+class BusinessCreate(BaseModel):
+    """Input for POST /admin/businesses. Only platform admins use this."""
+    name: str
+    twilio_number: str  # E.164 format, e.g. "+15551234567" — DB has UNIQUE constraint
+    services: str | None = None
+    hours: str | None = None
+    address: str | None = None
+    voice_greeting: str | None = None
+    system_prompt: str | None = None
+
+
+class BusinessAdminResponse(BaseModel):
+    """
+    Returned by admin endpoints. Exposes `owner_auth0_id` (which the regular
+    BusinessResponse hides) plus computed counts to power the admin list view.
+    """
+    id: int
+    name: str
+    twilio_number: str
+    services: str | None
+    hours: str | None
+    address: str | None
+    voice_greeting: str | None
+    system_prompt: str | None
+    owner_auth0_id: str | None
+    created_at: datetime
+    customer_count: int
+    job_count: int
+    conversation_count: int
+
+
 class TechnicianResponse(BaseModel):
     id: int
     name: str
