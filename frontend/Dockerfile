@@ -35,6 +35,8 @@ COPY --from=build /app/dist ./dist
 # Railway sets $PORT. Defaults to 3000 for local docker run.
 # -s = SPA mode: any URL that doesn't match a file returns index.html
 #      (so React Router handles client-side routes on refresh)
-# -l = listen on this port
+# -l tcp://0.0.0.0:$PORT explicitly binds to all interfaces. Without
+#      0.0.0.0, `serve` can default to localhost-only which Railway can't
+#      route to from outside the container → 502.
 # exec replaces the shell with serve so SIGTERM reaches it cleanly.
-CMD ["sh", "-c", "exec serve -s dist -l ${PORT:-3000}"]
+CMD ["sh", "-c", "exec serve -s dist -l tcp://0.0.0.0:${PORT:-3000}"]
