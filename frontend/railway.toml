@@ -1,0 +1,25 @@
+# Railway config for the frontend service.
+# This file lives inside `frontend/` and is read by Railway because the
+# frontend service has Root Directory set to `frontend/`.
+#
+# It exists to *override* the project-root railway.toml, whose values are
+# intended for the backend service (Python container, alembic, /health).
+# Without this override, Railway would inherit `preDeployCommand =
+# "uv run alembic upgrade head"` and try to run it inside our Node-only
+# frontend container, which fails immediately because `uv` isn't installed.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# No-op so Railway considers pre-deploy successful. `true` should work but
+# `echo skip` is guaranteed across all shells / containers.
+preDeployCommand = "echo skip"
+
+# Our `serve` returns index.html (200) for any path because of SPA fallback,
+# so `/` is a reliable healthcheck.
+healthcheckPath = "/"
+healthcheckTimeout = 10
+
+restartPolicyType = "ON_FAILURE"
