@@ -9,7 +9,8 @@ dockerfilePath = "Dockerfile"
 # Run pending DB migrations in a one-off container BEFORE the new image takes
 # traffic. If this fails, the deploy is aborted and the old container keeps
 # serving — no broken-schema downtime.
-preDeployCommand = ["uv", "run", "alembic", "upgrade", "head"]
+# Note: Railway expects a single command string (not argv tokens).
+preDeployCommand = "uv run alembic upgrade head"
 
 # Railway hits this path after the new container starts. Must return 2xx
 # within healthcheckTimeout seconds, otherwise the deploy is rolled back.
