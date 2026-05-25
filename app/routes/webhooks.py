@@ -44,9 +44,9 @@ async def inbound_sms(request: Request, db: AsyncSession = Depends(get_db)):
     if not business:
         raise HTTPException(status_code=404, detail="Business not found for this number")
 
-    # Get or create customer and conversation
+    # Get or create customer and conversation (this handler is SMS-only)
     customer = await get_or_create_customer(db, business.id, from_number)
-    conversation = await get_or_create_conversation(db, customer)
+    conversation = await get_or_create_conversation(db, customer, channel="sms")
 
     # Save inbound message
     await save_message(db, conversation, MessageDirection.inbound, body)
@@ -135,9 +135,9 @@ async def voice_respond(request: Request, db: AsyncSession = Depends(get_db)):
         response.hangup()
         return Response(content=str(response), media_type="application/xml")
 
-    # Get or create customer and conversation
+    # Get or create customer and conversation (this handler is voice-only)
     customer = await get_or_create_customer(db, business.id, from_number)
-    conversation = await get_or_create_conversation(db, customer)
+    conversation = await get_or_create_conversation(db, customer, channel="voice")
 
     # Save what the customer said
     await save_message(db, conversation, MessageDirection.inbound, speech_result)

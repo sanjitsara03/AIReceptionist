@@ -17,9 +17,17 @@ async def get_or_create_customer(db: AsyncSession, business_id: int, phone: str)
     return customer
 
 
-async def get_or_create_conversation(db: AsyncSession, customer: Customer) -> Conversation:
-    # Use .limit(1) — a customer can have multiple historical conversations.
-    # We grab the most recent one.
+async def get_or_create_conversation(
+    db: AsyncSession, customer: Customer, channel: str = "sms"
+) -> Conversation:
+    """
+    Find the customer's most recent conversation, or create a new one tagged
+    with `channel` ("sms" or "voice").
+
+    If the most recent conversation is in a DIFFERENT channel than the current
+    contact (e.g. last time they texted, now they're calling), we treat it as
+    a new conversation — the channel is part of the conversation's identity.
+    """
     result = await db.execute(
         select(Conversation)
         .where(Conversation.customer_id == customer.id)
@@ -28,8 +36,8 @@ async def get_or_create_conversation(db: AsyncSession, customer: Customer) -> Co
     )
     conversation = result.scalar_one_or_none()
 
-    if not conversation:
-        conversation = Conversation(customer_id=customer.id)
+    if conversation is None or conversation.channel != channel:
+        conversation = Conversation(customer_id=customer.id, channel=channel)
         db.add(conversation)
         await db.flush()
 
