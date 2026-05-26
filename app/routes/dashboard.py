@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
+from app.config import pt_today_bounds
 from app.database import get_db
 from app.models import Job, Customer, JobStatus, TimeSlot, Conversation, MessageDirection, Technician
 from app.schemas import DashboardSummary, FeedItem
@@ -13,9 +14,9 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
 def _today_bounds():
-    now = datetime.now(timezone.utc)
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    return start, start + timedelta(days=1)
+    # "Today" is California-local, not UTC. UTC midnight rolls over at 5pm PT
+    # which makes the dashboard's "today's jobs" wrong all afternoon.
+    return pt_today_bounds()
 
 
 @router.get("/summary", response_model=DashboardSummary)

@@ -1,6 +1,29 @@
 # Defines the config settings for the application
 
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# All user-facing times (texts, voice replies, dashboard "today" cutoff,
+# digest cron) are rendered in this zone. Storage stays in UTC.
+BUSINESS_TZ = ZoneInfo("America/Los_Angeles")
+
+
+def pt_today_bounds() -> tuple[datetime, datetime]:
+    """Return [PT-midnight today, PT-midnight tomorrow), expressed in UTC.
+
+    Use this anywhere a query needs to ask "rows from today" — UTC midnight
+    rolls over at 5pm PT, which surprises everyone.
+    """
+    now_pt = datetime.now(BUSINESS_TZ)
+    start_pt = now_pt.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_pt = start_pt + timedelta(days=1)
+    return start_pt.astimezone(timezone.utc), end_pt.astimezone(timezone.utc)
+
+
+def fmt_pt(dt: datetime, fmt: str) -> str:
+    """Render a (UTC, tz-aware) datetime in PT using strftime."""
+    return dt.astimezone(BUSINESS_TZ).strftime(fmt)
 
 
 class Settings(BaseSettings):

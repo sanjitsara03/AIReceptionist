@@ -7,9 +7,9 @@ from twilio.rest import Client
 
 from app.database import AsyncSessionLocal
 from app.models import Job, JobStatus, Business, TimeSlot
-from app.config import settings
+from app.config import settings, BUSINESS_TZ, fmt_pt, pt_today_bounds
 
-scheduler = AsyncIOScheduler()
+scheduler = AsyncIOScheduler(timezone=BUSINESS_TZ)
 twilio_client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
 
 
@@ -47,7 +47,7 @@ async def send_reminders():
 
             message = (
                 f"Reminder: Your {job.job_type} appointment with {business.name} is tomorrow at "
-                f"{job.time_slot.start_time.strftime('%I:%M %p')}. Reply STOP to opt out."
+                f"{fmt_pt(job.time_slot.start_time, '%I:%M %p')}. Reply STOP to opt out."
             )
 
             # Twilio's SDK is sync — run it in a thread so the event loop
@@ -94,8 +94,7 @@ async def detect_no_shows():
 
 async def send_daily_digest():
     """Send each business owner a morning summary of today's jobs."""
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    today_end = today_start + timedelta(days=1)
+    today_start, today_end = pt_today_bounds()
 
     async with AsyncSessionLocal() as db:
         businesses_result = await db.execute(select(Business))

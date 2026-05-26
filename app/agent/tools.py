@@ -4,6 +4,7 @@ from pydantic_ai import RunContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import fmt_pt
 from app.models import TimeSlot, Job, JobStatus, Customer, Business, Technician
 from app.events import publish
 
@@ -70,7 +71,7 @@ async def list_my_appointments(ctx: RunContext[AgentDeps]) -> str:
 
     lines = [
         f"Job {job.id}: {job.job_type} on "
-        f"{slot.start_time.strftime('%A %b %d at %I:%M %p')} (status: {job.status.value})"
+        f"{fmt_pt(slot.start_time, '%A %b %d at %I:%M %p')} (status: {job.status.value})"
         for job, slot in rows
     ]
     return "Your upcoming appointments:\n" + "\n".join(lines)
@@ -95,7 +96,7 @@ async def check_availability(ctx: RunContext[AgentDeps]) -> str:
         return "No available time slots at the moment."
 
     lines = [
-        f"Slot {slot.id}: {slot.start_time.strftime('%A %b %d at %I:%M %p')}"
+        f"Slot {slot.id}: {fmt_pt(slot.start_time, '%A %b %d at %I:%M %p')}"
         for slot in slots
     ]
     return "Available slots:\n" + "\n".join(lines)
@@ -137,7 +138,7 @@ async def book_job(ctx: RunContext[AgentDeps], slot_id: int, job_type: str) -> s
 
     return (
         f"Booked! Your {job_type} appointment is confirmed for "
-        f"{slot.start_time.strftime('%A %b %d at %I:%M %p')}. Reply STOP to opt out."
+        f"{fmt_pt(slot.start_time, '%A %b %d at %I:%M %p')}. Reply STOP to opt out."
     )
 
 
@@ -185,7 +186,7 @@ async def reschedule_job(ctx: RunContext[AgentDeps], job_id: int, new_slot_id: i
 
     publish(ctx.deps.business_id, "job.updated", {"job_id": job.id})
 
-    return f"Rescheduled! Your appointment is now set for {new_slot.start_time.strftime('%A %b %d at %I:%M %p')}."
+    return f"Rescheduled! Your appointment is now set for {fmt_pt(new_slot.start_time, '%A %b %d at %I:%M %p')}."
 
 
 async def cancel_job(ctx: RunContext[AgentDeps], job_id: int) -> str:
