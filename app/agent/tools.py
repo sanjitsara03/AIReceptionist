@@ -24,14 +24,18 @@ JOB_ESTIMATES = {
 
 
 def _estimate_for(job_type: str) -> int | None:
-    # Case-insensitive substring match against the JOB_ESTIMATES keys.
+    # Case-insensitive match. Prefer exact, then longest substring match so
+    # ambiguous inputs like "water heater" don't randomly pick "repair" vs
+    # "install" based on dict iteration order.
     key = job_type.lower().strip()
     if key in JOB_ESTIMATES:
         return JOB_ESTIMATES[key]
-    for known, price in JOB_ESTIMATES.items():
+    best_known: str | None = None
+    for known in JOB_ESTIMATES:
         if known in key or key in known:
-            return price
-    return None
+            if best_known is None or len(known) > len(best_known):
+                best_known = known
+    return JOB_ESTIMATES[best_known] if best_known else None
 
 
 class AgentDeps(BaseModel):

@@ -1,11 +1,11 @@
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models import Job, Customer, JobStatus, TimeSlot, Conversation, MessageDirection
+from app.models import Job, Customer, JobStatus, TimeSlot, Conversation, MessageDirection, Technician
 from app.schemas import DashboardSummary, FeedItem
 from app.auth import get_current_business_id
 
@@ -74,7 +74,7 @@ async def get_summary(
 @router.get("/feed", response_model=list[FeedItem])
 async def get_feed(
     business_id: int = Depends(get_current_business_id),
-    limit: int = 15,
+    limit: int = Query(15, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -89,6 +89,24 @@ async def get_feed(
         .limit(limit)
     )
     convs = result.scalars().all()
+
+    # Build a {customer_id -> (estimate, tech_name)} map from each customer's
+    # most-recent job, so the feed can show $ and assigned tech without N+1.
+    customer_ids = [c.customer_id for c in convs]
+    latest_by_customer: dict[int, tuple[int | None, str | None]] = {}
+    if customer_ids:
+        latest_jobs = await db.execute(
+            select(Job, Technician.name)
+            .outerjoin(Technician, Job.technician_id == Technician.id)
+            .where(
+                Job.business_id == business_id,
+                Job.customer_id.in_(customer_ids),
+            )
+            .order_by(Job.customer_id, Job.created_at.desc())
+        )
+        for job, tech_name in latest_jobs.all():
+            if job.customer_id not in latest_by_customer:
+                latest_by_customer[job.customer_id] = (job.estimate, tech_name)
 
     items = []
     for conv in convs:
@@ -112,6 +130,8 @@ async def get_feed(
                 verb = "booked an appointment"
                 break
 
+        estimate, tech_name = latest_by_customer.get(conv.customer_id, (None, None))
+
         items.append(FeedItem(
             id=conv.id,
             kind=kind,
@@ -119,6 +139,8 @@ async def get_feed(
             verb=verb,
             channel=conv.channel,
             when_iso=conv.updated_at,
+            tech_name=tech_name,
+            estimate=estimate,
         ))
 
     return items

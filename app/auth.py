@@ -25,22 +25,23 @@ _JWKS_TTL_SECONDS = 300
 _jwks_cache: tuple[float, dict] | None = None
 
 
-def _get_jwks() -> dict:
+async def _get_jwks() -> dict:
     global _jwks_cache
     now = time.monotonic()
     if _jwks_cache is not None and now - _jwks_cache[0] < _JWKS_TTL_SECONDS:
         return _jwks_cache[1]
 
     url = f"https://{settings.auth0_domain}/.well-known/jwks.json"
-    resp = httpx.get(url, timeout=10)
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(url)
     resp.raise_for_status()
     jwks = resp.json()
     _jwks_cache = (now, jwks)
     return jwks
 
 
-def _decode_token(token: str) -> dict:
-    jwks = _get_jwks()
+async def _decode_token(token: str) -> dict:
+    jwks = await _get_jwks()
     try:
         payload = jwt.decode(
             token,
@@ -61,7 +62,7 @@ async def get_current_business_id(
     credentials: HTTPAuthorizationCredentials = Depends(bearer),
     db: AsyncSession = Depends(get_db),
 ) -> int:
-    payload = _decode_token(credentials.credentials)
+    payload = await _decode_token(credentials.credentials)
     auth0_user_id: str = payload.get("sub", "")
 
     result = await db.execute(
@@ -81,5 +82,5 @@ async def get_current_business_id(
 async def get_current_auth0_id(
     credentials: HTTPAuthorizationCredentials = Depends(bearer),
 ) -> str:
-    payload = _decode_token(credentials.credentials)
+    payload = await _decode_token(credentials.credentials)
     return payload.get("sub", "")

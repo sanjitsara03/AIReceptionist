@@ -17,7 +17,7 @@ async def stream(
     db: AsyncSession = Depends(get_db),
 ):
     """Server-Sent Events stream for the authenticated user's business."""
-    payload = _decode_token(token)
+    payload = await _decode_token(token)
     auth0_id = payload.get("sub", "")
 
     result = await db.execute(select(Business).where(Business.owner_auth0_id == auth0_id))

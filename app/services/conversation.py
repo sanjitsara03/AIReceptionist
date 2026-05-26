@@ -1,6 +1,12 @@
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models import Customer, Conversation, Message, MessageDirection
+
+# A conversation older than this is treated as stale — the next inbound
+# starts a fresh thread. Keeps message rows bounded and gives the agent
+# a clean history window.
+CONVERSATION_STALE_AFTER = timedelta(days=7)
 
 
 async def get_or_create_customer(db: AsyncSession, business_id: int, phone: str) -> Customer:
@@ -36,7 +42,15 @@ async def get_or_create_conversation(
     )
     conversation = result.scalar_one_or_none()
 
-    if conversation is None or conversation.channel != channel:
+    stale = False
+    if conversation is not None:
+        last_active = conversation.updated_at or conversation.created_at
+        if last_active is not None:
+            # updated_at from the DB is timezone-aware (DateTime(timezone=True))
+            if datetime.now(timezone.utc) - last_active > CONVERSATION_STALE_AFTER:
+                stale = True
+
+    if conversation is None or conversation.channel != channel or stale:
         conversation = Conversation(customer_id=customer.id, channel=channel)
         db.add(conversation)
         await db.flush()

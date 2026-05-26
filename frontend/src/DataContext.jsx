@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import {
+  BASE,
   fetchAuthMe,
   claimBusiness,
   fetchTechnicians,
@@ -108,7 +109,7 @@ export function DataProvider({ children }) {
       try {
         const token = await getToken();
         if (cancelled) return;
-        es = new EventSource(`/api/events/stream?token=${encodeURIComponent(token)}`);
+        es = new EventSource(`${BASE}/events/stream?token=${encodeURIComponent(token)}`);
 
         const triggerReload = () => {
           clearTimeout(debounceId);

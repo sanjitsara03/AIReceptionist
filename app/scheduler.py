@@ -6,7 +6,7 @@ from sqlalchemy.orm import selectinload
 from twilio.rest import Client
 
 from app.database import AsyncSessionLocal
-from app.models import Job, JobStatus, Customer, Business, Technician, TimeSlot
+from app.models import Job, JobStatus, Business, TimeSlot
 from app.config import settings
 
 scheduler = AsyncIOScheduler()
@@ -67,8 +67,12 @@ async def send_reminders():
 
 
 async def detect_no_shows():
-    """Mark confirmed jobs whose scheduled time has passed as no_show."""
-    now = datetime.now(timezone.utc)
+    """Mark confirmed jobs that ended >2h ago as no_show.
+
+    The 2-hour buffer prevents flipping jobs that the tech actually
+    completed but hasn't been marked complete yet.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=2)
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(
@@ -76,7 +80,7 @@ async def detect_no_shows():
             .join(TimeSlot, Job.time_slot_id == TimeSlot.id)
             .where(
                 Job.status == JobStatus.confirmed,
-                TimeSlot.end_time < now,
+                TimeSlot.end_time < cutoff,
             )
         )
         jobs = result.scalars().all()
@@ -117,31 +121,17 @@ async def send_daily_digest():
             no_show = sum(1 for j in jobs if j.status == JobStatus.no_show)
             cancelled = sum(1 for j in jobs if j.status == JobStatus.cancelled)
 
-            # Get business owner — first technician for now
-            tech_result = await db.execute(
-                select(Technician).where(Technician.business_id == business.id).limit(1)
-            )
-            owner = tech_result.scalar_one_or_none()
-
-            if not owner:
-                continue
-
-            message = (
-                f"Good morning! Today's summary for {business.name}:\n"
-                f"Confirmed: {confirmed}\n"
-                f"Completed: {completed}\n"
-                f"No-shows: {no_show}\n"
-                f"Cancelled: {cancelled}"
+            # Digest delivery is intentionally a no-op until an owner_phone
+            # field is added to Business. The previous behavior texted "the
+            # first technician" which surprised techs and leaked metrics to
+            # the wrong person. Logging the digest so it still shows up in
+            # Railway logs / Sentry breadcrumbs for the owner to see.
+            print(
+                f"[Digest] {business.name}: confirmed={confirmed} "
+                f"completed={completed} no_shows={no_show} cancelled={cancelled}"
             )
 
-            await asyncio.to_thread(
-                twilio_client.messages.create,
-                body=message,
-                from_=business.twilio_number,
-                to=owner.phone,
-            )
-
-        print("[Digest] Daily digest sent.")
+        print("[Digest] Daily digest run complete.")
 
 
 def start_scheduler():

@@ -169,8 +169,14 @@ async def create_slots_bulk(
     slot_delta = timedelta(minutes=payload.slot_minutes)
     created: list[TimeSlot] = []
 
-    day = payload.start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_day = payload.end_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Normalize to UTC up front so day.weekday() doesn't shift when the
+    # caller sends timestamps in a non-UTC tz. Naive datetimes are assumed
+    # to already be UTC.
+    def _to_utc(dt: datetime) -> datetime:
+        return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+    day = _to_utc(payload.start_date).replace(hour=0, minute=0, second=0, microsecond=0)
+    end_day = _to_utc(payload.end_date).replace(hour=0, minute=0, second=0, microsecond=0)
 
     # Hard cap so a typo can't fill the DB
     if (end_day - day).days > 90:

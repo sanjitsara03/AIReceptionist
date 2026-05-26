@@ -58,16 +58,21 @@ def _candidate_urls(request: Request) -> list[str]:
     path = request.url.path
     qs = f"?{request.url.query}" if request.url.query else ""
 
+    # When the operator has explicitly pinned WEBHOOK_BASE_URL, trust ONLY
+    # that — otherwise a caller could forge an X-Forwarded-Host that we
+    # happen to accept, weakening the signature check.
+    if settings.webhook_base_url:
+        base = settings.webhook_base_url.rstrip("/")
+        return [f"{base}{path}{qs}"]
+
     fwd_host = (request.headers.get("X-Forwarded-Host") or request.url.netloc).split(",")[0].strip()
     fwd_proto = (request.headers.get("X-Forwarded-Proto") or request.url.scheme).split(",")[0].strip()
 
-    candidates: list[str] = []
-    if settings.webhook_base_url:
-        base = settings.webhook_base_url.rstrip("/")
-        candidates.append(f"{base}{path}{qs}")
-    candidates.append(f"https://{fwd_host}{path}{qs}")
-    candidates.append(f"{fwd_proto}://{fwd_host}{path}{qs}")
-    candidates.append(str(request.url))
+    candidates: list[str] = [
+        f"https://{fwd_host}{path}{qs}",
+        f"{fwd_proto}://{fwd_host}{path}{qs}",
+        str(request.url),
+    ]
 
     # De-dupe while preserving order
     seen, unique = set(), []
