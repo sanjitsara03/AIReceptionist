@@ -33,12 +33,6 @@ LIMIT_REACHED_REPLY = (
 # ---------------------------------------------------------------------------
 # Twilio request signature validation
 # ---------------------------------------------------------------------------
-#
-# Twilio signs every webhook POST with HMAC-SHA1 over the full URL + the
-# url-encoded form body, using our account's TWILIO_AUTH_TOKEN as the key.
-# Without this check, anyone can hit /webhooks/* with fake POSTs and burn
-# unlimited Claude API tokens. This is the single most important production
-# guard for cost control.
 
 def _candidate_urls(request: Request) -> list[str]:
     """
