@@ -189,6 +189,42 @@ async def reschedule_job(ctx: RunContext[AgentDeps], job_id: int, new_slot_id: i
     return f"Rescheduled! Your appointment is now set for {fmt_pt(new_slot.start_time, '%A %b %d at %I:%M %p')}."
 
 
+async def cancel_all_jobs(ctx: RunContext[AgentDeps]) -> str:
+    # Cancel every upcoming/active job for THIS customer at THIS business.
+    # Use when the caller says "cancel all my appointments", "cancel everything",
+    # "wipe my schedule", etc. Prefer cancel_job when they name a specific one.
+    db = ctx.deps.db
+
+    active_statuses = [JobStatus.confirmed, JobStatus.pending, JobStatus.in_progress]
+    result = await db.execute(
+        select(Job, TimeSlot)
+        .outerjoin(TimeSlot, Job.time_slot_id == TimeSlot.id)
+        .where(
+            Job.customer_id == ctx.deps.customer.id,
+            Job.business_id == ctx.deps.business_id,
+            Job.status.in_(active_statuses),
+            TimeSlot.start_time >= datetime.now(timezone.utc),
+        )
+    )
+    rows = result.all()
+
+    if not rows:
+        return "No upcoming appointments to cancel."
+
+    cancelled_ids: list[int] = []
+    for job, slot in rows:
+        job.status = JobStatus.cancelled
+        if slot is not None:
+            slot.is_available = True
+        cancelled_ids.append(job.id)
+
+    await db.flush()
+    for jid in cancelled_ids:
+        publish(ctx.deps.business_id, "job.updated", {"job_id": jid})
+
+    return f"Cancelled {len(cancelled_ids)} appointment(s) for this caller."
+
+
 async def cancel_job(ctx: RunContext[AgentDeps], job_id: int) -> str:
     # Cancel — must belong to THIS business.
     db = ctx.deps.db

@@ -13,10 +13,18 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import UsageLimits
 
 from app.config import settings
-from app.agent.tools import AgentDeps, check_availability, book_job, reschedule_job, cancel_job, list_my_appointments
+from app.agent.tools import (
+    AgentDeps,
+    check_availability,
+    book_job,
+    reschedule_job,
+    cancel_job,
+    cancel_all_jobs,
+    list_my_appointments,
+)
 
 # Cap LLM round-trips and tokens per .run() so a runaway loop can't burn spend.
-AGENT_USAGE_LIMITS = UsageLimits(request_limit=5, total_tokens_limit=10000)
+AGENT_USAGE_LIMITS = UsageLimits(request_limit=8, total_tokens_limit=15000)
 
 os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
 
@@ -37,11 +45,13 @@ OPERATIONAL_RULES = """OPERATIONAL RULES (always follow these regardless of pers
 
 3. For booking: call check_availability, confirm the slot with the customer in plain language (date + time), then call book_job.
 
-4. For cancelling or rescheduling: ALWAYS call list_my_appointments first to find the job. Match the customer's words ("my drain cleaning", "Tuesday at 2") to one of the returned Job entries, then call cancel_job or reschedule_job with that job's id. If multiple match, ask the customer which one (by date/service, never by id). If none match, tell the customer you don't see that appointment.
+4. For cancelling or rescheduling a SPECIFIC appointment: ALWAYS call list_my_appointments first. Match the customer's words ("my drain cleaning", "Tuesday at 2") to one of the returned Job entries, then call cancel_job or reschedule_job with that job's id. If multiple match, ask the customer which one (by date/service, never by id). If none match, tell the customer you don't see that appointment.
 
-5. Replies are spoken aloud via TTS or sent as SMS. No emojis. No markdown (no asterisks, no bullet symbols, no checkmarks). No long paragraphs. Speak short, conversational sentences.
+5. For cancelling ALL appointments at once ("cancel everything", "cancel all my appointments", "wipe my schedule", "I won't make any of them"): call cancel_all_jobs — a single tool call that cancels every upcoming job for this caller. Do NOT loop cancel_job per appointment. Do NOT ask "which one" — the customer told you all.
 
-6. If a tool returns an error message, do not retry it more than once. Apologize and offer to have someone call the customer back."""
+6. Replies are spoken aloud via TTS or sent as SMS. No emojis. No markdown (no asterisks, no bullet symbols, no checkmarks). No long paragraphs. Speak short, conversational sentences.
+
+7. If a tool returns an error message, do not retry it more than once. Apologize and offer to have someone call the customer back."""
 
 BASE_SYSTEM_PROMPT = """You are an AI receptionist for {business_name}. Your job is to help customers via SMS and voice calls.
 
@@ -86,6 +96,7 @@ agent.tool(check_availability)
 agent.tool(book_job)
 agent.tool(reschedule_job)
 agent.tool(cancel_job)
+agent.tool(cancel_all_jobs)
 agent.tool(list_my_appointments)
 
 
