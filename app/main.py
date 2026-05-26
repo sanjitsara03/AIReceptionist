@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +18,21 @@ init_sentry()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Surface the resolved webhook base URL so a typo in WEBHOOK_BASE_URL
+    # (trailing slash, http vs https, wrong host) is obvious in startup logs
+    # rather than silently 403-ing every Twilio webhook.
+    log = logging.getLogger("startup")
+    if settings.validate_twilio_signature:
+        if settings.webhook_base_url:
+            log.info("Twilio signature validation: STRICT, base=%s", settings.webhook_base_url)
+        else:
+            log.warning(
+                "Twilio signature validation: enabled but WEBHOOK_BASE_URL unset — "
+                "falling back to X-Forwarded-* reconstruction. Set WEBHOOK_BASE_URL in prod."
+            )
+    else:
+        log.warning("Twilio signature validation is DISABLED — only acceptable in tests.")
+
     start_scheduler()
     yield
     stop_scheduler()

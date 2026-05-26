@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import datetime, timezone, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
@@ -11,6 +12,7 @@ from app.config import settings, BUSINESS_TZ, fmt_pt, pt_today_bounds
 
 scheduler = AsyncIOScheduler(timezone=BUSINESS_TZ)
 twilio_client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
+log = logging.getLogger("scheduler")
 
 
 async def send_reminders():
@@ -63,7 +65,7 @@ async def send_reminders():
             sent += 1
 
         await db.commit()
-        print(f"[Reminders] Sent {sent} reminders.")
+        log.info("Reminders sent: %d", sent)
 
 
 async def detect_no_shows():
@@ -89,7 +91,7 @@ async def detect_no_shows():
             job.status = JobStatus.no_show
 
         await db.commit()
-        print(f"[No-shows] Marked {len(jobs)} jobs as no-show.")
+        log.info("No-shows marked: %d", len(jobs))
 
 
 async def send_daily_digest():
@@ -125,12 +127,12 @@ async def send_daily_digest():
             # first technician" which surprised techs and leaked metrics to
             # the wrong person. Logging the digest so it still shows up in
             # Railway logs / Sentry breadcrumbs for the owner to see.
-            print(
-                f"[Digest] {business.name}: confirmed={confirmed} "
-                f"completed={completed} no_shows={no_show} cancelled={cancelled}"
+            log.info(
+                "Digest %s: confirmed=%d completed=%d no_shows=%d cancelled=%d",
+                business.name, confirmed, completed, no_show, cancelled,
             )
 
-        print("[Digest] Daily digest run complete.")
+        log.info("Daily digest run complete.")
 
 
 def start_scheduler():

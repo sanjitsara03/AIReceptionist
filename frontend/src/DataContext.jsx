@@ -288,12 +288,15 @@ function fmtTime(iso) {
 }
 
 function fmt24(iso) {
-  // 24-hour "HH:MM" in PT — used by TodayView's schedule math
+  // 24-hour "HH:MM" in PT — used by TodayView's schedule math.
+  // Use hourCycle "h23" so midnight is "00" instead of "24" (some
+  // Chromium versions emit "24" with just hour12:false).
   if (!iso) return "";
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: TZ, hour12: false, hour: "2-digit", minute: "2-digit",
+    timeZone: TZ, hourCycle: "h23", hour: "2-digit", minute: "2-digit",
   }).formatToParts(new Date(iso));
-  const h = parts.find((p) => p.type === "hour")?.value ?? "00";
+  let h = parts.find((p) => p.type === "hour")?.value ?? "00";
+  if (h === "24") h = "00";
   const m = parts.find((p) => p.type === "minute")?.value ?? "00";
   return `${h}:${m}`;
 }

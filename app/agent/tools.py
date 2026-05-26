@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from pydantic import BaseModel
 from pydantic_ai import RunContext
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import fmt_pt
@@ -25,15 +25,15 @@ JOB_ESTIMATES = {
 
 
 def _estimate_for(job_type: str) -> int | None:
-    # Case-insensitive match. Prefer exact, then longest substring match so
-    # ambiguous inputs like "water heater" don't randomly pick "repair" vs
-    # "install" based on dict iteration order.
+    # Case-insensitive match. Prefer exact, then longest known-key contained
+    # in the input. Only check `known in key` (not the reverse) so a short
+    # generic word like "repair" doesn't match the long "pipe repair" entry.
     key = job_type.lower().strip()
     if key in JOB_ESTIMATES:
         return JOB_ESTIMATES[key]
     best_known: str | None = None
     for known in JOB_ESTIMATES:
-        if known in key or key in known:
+        if known in key:
             if best_known is None or len(known) > len(best_known):
                 best_known = known
     return JOB_ESTIMATES[best_known] if best_known else None
@@ -196,6 +196,10 @@ async def cancel_all_jobs(ctx: RunContext[AgentDeps]) -> str:
     db = ctx.deps.db
 
     active_statuses = [JobStatus.confirmed, JobStatus.pending, JobStatus.in_progress]
+    now_utc = datetime.now(timezone.utc)
+    # Outer join so jobs with no time_slot still come through. The
+    # "must be in the future" check is wrapped in or_(... is_(None)) so
+    # NULL doesn't silently drop those jobs.
     result = await db.execute(
         select(Job, TimeSlot)
         .outerjoin(TimeSlot, Job.time_slot_id == TimeSlot.id)
@@ -203,7 +207,7 @@ async def cancel_all_jobs(ctx: RunContext[AgentDeps]) -> str:
             Job.customer_id == ctx.deps.customer.id,
             Job.business_id == ctx.deps.business_id,
             Job.status.in_(active_statuses),
-            TimeSlot.start_time >= datetime.now(timezone.utc),
+            or_(TimeSlot.start_time >= now_utc, Job.time_slot_id.is_(None)),
         )
     )
     rows = result.all()

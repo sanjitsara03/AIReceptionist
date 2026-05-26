@@ -150,23 +150,29 @@ def _log_tool_calls(result, business_id: int) -> None:
     for msg in new_msgs:
         for part in getattr(msg, "parts", []) or []:
             if isinstance(part, ToolCallPart):
-                by_id[part.tool_call_id] = part.tool_name
-                log.info("tool_call business=%s name=%s args=%s", business_id, part.tool_name, part.args)
+                call_id = getattr(part, "tool_call_id", None)
+                name = getattr(part, "tool_name", "unknown")
+                args = getattr(part, "args", None)
+                if call_id:
+                    by_id[call_id] = name
+                log.info("tool_call business=%s name=%s args=%s", business_id, name, args)
                 if sentry_sdk:
                     sentry_sdk.add_breadcrumb(
                         category="agent.tool_call",
-                        message=part.tool_name,
-                        data={"business_id": business_id, "args": str(part.args)[:500]},
+                        message=name,
+                        data={"business_id": business_id, "args": str(args)[:500]},
                         level="info",
                     )
             elif isinstance(part, ToolReturnPart):
-                name = by_id.get(part.tool_call_id, "unknown")
-                log.info("tool_return business=%s name=%s result=%s", business_id, name, str(part.content)[:500])
+                call_id = getattr(part, "tool_call_id", None)
+                name = by_id.get(call_id, "unknown") if call_id else "unknown"
+                content = getattr(part, "content", None)
+                log.info("tool_return business=%s name=%s result=%s", business_id, name, str(content)[:500])
                 if sentry_sdk:
                     sentry_sdk.add_breadcrumb(
                         category="agent.tool_return",
                         message=name,
-                        data={"business_id": business_id, "result": str(part.content)[:500]},
+                        data={"business_id": business_id, "result": str(content)[:500]},
                         level="info",
                     )
 

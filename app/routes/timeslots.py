@@ -169,14 +169,18 @@ async def create_slots_bulk(
     slot_delta = timedelta(minutes=payload.slot_minutes)
     created: list[TimeSlot] = []
 
-    # Normalize to UTC up front so day.weekday() doesn't shift when the
-    # caller sends timestamps in a non-UTC tz. Naive datetimes are assumed
-    # to already be UTC.
-    def _to_utc(dt: datetime) -> datetime:
-        return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    # Anchor the weekday + hour math in California time. "Tuesday 9am to 5pm"
+    # means PT Tuesday and PT business hours regardless of where the caller
+    # or container is. Naive inputs are assumed to be UTC.
+    from app.config import BUSINESS_TZ
 
-    day = _to_utc(payload.start_date).replace(hour=0, minute=0, second=0, microsecond=0)
-    end_day = _to_utc(payload.end_date).replace(hour=0, minute=0, second=0, microsecond=0)
+    def _to_pt(dt: datetime) -> datetime:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(BUSINESS_TZ)
+
+    day = _to_pt(payload.start_date).replace(hour=0, minute=0, second=0, microsecond=0)
+    end_day = _to_pt(payload.end_date).replace(hour=0, minute=0, second=0, microsecond=0)
 
     # Hard cap so a typo can't fill the DB
     if (end_day - day).days > 90:
@@ -184,13 +188,14 @@ async def create_slots_bulk(
 
     while day < end_day:
         if day.weekday() in weekdays:
+            # PT wall-clock cursor; converted to UTC before inserting.
             cursor = day.replace(hour=payload.day_start_hour)
             day_close = day.replace(hour=0) + timedelta(hours=payload.day_end_hour)
             while cursor + slot_delta <= day_close:
                 slot = TimeSlot(
                     technician_id=tech.id,
-                    start_time=cursor,
-                    end_time=cursor + slot_delta,
+                    start_time=cursor.astimezone(timezone.utc),
+                    end_time=(cursor + slot_delta).astimezone(timezone.utc),
                     is_available=True,
                 )
                 db.add(slot)

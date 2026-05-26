@@ -88,5 +88,10 @@ async def save_message(db: AsyncSession, conversation_id: int, direction: Messag
     # working even if the session was rolled back and the ORM object expired.
     message = Message(conversation_id=conversation_id, direction=direction, body=body)
     db.add(message)
+    # Bump the conversation's updated_at so the staleness check in
+    # get_or_create_conversation reflects last activity, not last edit.
+    conv = await db.get(Conversation, conversation_id)
+    if conv is not None:
+        conv.updated_at = datetime.now(timezone.utc)
     await db.flush()
     return message

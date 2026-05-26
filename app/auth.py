@@ -5,6 +5,7 @@ Usage in routes:
     business_id: int = Depends(get_current_business_id)
 """
 
+import asyncio
 import time
 import httpx
 from fastapi import Depends, HTTPException, status
@@ -20,9 +21,12 @@ from app.models import Business
 bearer = HTTPBearer()
 
 
-# JWKS cache with a 5 minute TTL. 
+# JWKS cache with a 5 minute TTL. The lock prevents N concurrent first
+# requests from each firing the HTTP call on a cold container — they all
+# wait on the first one and then read from cache.
 _JWKS_TTL_SECONDS = 300
 _jwks_cache: tuple[float, dict] | None = None
+_jwks_lock = asyncio.Lock()
 
 
 async def _get_jwks() -> dict:
@@ -31,13 +35,19 @@ async def _get_jwks() -> dict:
     if _jwks_cache is not None and now - _jwks_cache[0] < _JWKS_TTL_SECONDS:
         return _jwks_cache[1]
 
-    url = f"https://{settings.auth0_domain}/.well-known/jwks.json"
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(url)
-    resp.raise_for_status()
-    jwks = resp.json()
-    _jwks_cache = (now, jwks)
-    return jwks
+    async with _jwks_lock:
+        # Re-check under the lock — another coroutine may have populated it.
+        now = time.monotonic()
+        if _jwks_cache is not None and now - _jwks_cache[0] < _JWKS_TTL_SECONDS:
+            return _jwks_cache[1]
+
+        url = f"https://{settings.auth0_domain}/.well-known/jwks.json"
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(url)
+        resp.raise_for_status()
+        jwks = resp.json()
+        _jwks_cache = (now, jwks)
+        return jwks
 
 
 async def _decode_token(token: str) -> dict:

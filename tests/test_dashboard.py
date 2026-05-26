@@ -1,6 +1,7 @@
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import select
 
+from app.config import BUSINESS_TZ
 from app.models import TimeSlot, Job, JobStatus, Technician, Customer, Conversation, MessageDirection
 
 
@@ -22,13 +23,14 @@ async def test_summary_counts_today(client, business, db):
         select(Customer).where(Customer.business_id == business.id).limit(1)
     )).scalar_one()
 
-    # Schedule the slot 30 minutes after "today midnight UTC" so it's always today,
-    # regardless of when the test runs. (Old logic flaked between 23:00–00:00 UTC.)
-    now = datetime.now(timezone.utc)
-    later_today = now.replace(hour=0, minute=30, second=0, microsecond=0)
-    if later_today < now - timedelta(minutes=5):
-        # Already past 00:30 today UTC — just pick a safe slot a few minutes from now.
-        later_today = now + timedelta(minutes=5)
+    # Dashboard "today" is in PT (America/Los_Angeles), so anchor the slot
+    # to PT-midnight + 30 minutes and convert to UTC for storage.
+    now_pt = datetime.now(BUSINESS_TZ)
+    later_pt = now_pt.replace(hour=0, minute=30, second=0, microsecond=0)
+    if later_pt.astimezone(timezone.utc) < datetime.now(timezone.utc) - timedelta(minutes=5):
+        # 00:30 PT today is already past — pick a safe slot a few minutes from now.
+        later_pt = now_pt + timedelta(minutes=5)
+    later_today = later_pt.astimezone(timezone.utc)
 
     slot = TimeSlot(technician_id=tech.id, start_time=later_today, end_time=later_today + timedelta(hours=1), is_available=False)
     db.add(slot)

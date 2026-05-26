@@ -7,7 +7,7 @@ from twilio.request_validator import RequestValidator
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.twiml.voice_response import VoiceResponse, Gather
 
-from app.config import settings
+from app.config import settings, pt_today_bounds
 from app.database import get_db
 from app.events import publish
 from app.limiter import limiter
@@ -119,8 +119,9 @@ async def _over_daily_cap(db: AsyncSession, business_id: int) -> bool:
     cap = settings.daily_message_limit_per_business
     if cap <= 0:
         return False
-    since = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    
+    # "Today" = California-local day so the cap resets at PT midnight, not 5pm PT.
+    since, _ = pt_today_bounds()
+
     result = await db.execute(
         select(func.count(Message.id))
         .join(Conversation, Conversation.id == Message.conversation_id)

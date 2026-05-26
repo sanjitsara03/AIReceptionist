@@ -22,7 +22,15 @@ def pt_today_bounds() -> tuple[datetime, datetime]:
 
 
 def fmt_pt(dt: datetime, fmt: str) -> str:
-    """Render a (UTC, tz-aware) datetime in PT using strftime."""
+    """Render a datetime in PT using strftime.
+
+    Naive datetimes are assumed to be UTC (our DB stores UTC instants in
+    tz-aware columns, but a few code paths build datetimes without tzinfo).
+    Without this assumption, `astimezone` on a naive value silently uses
+    the system's local TZ — fine on a CA laptop, wrong on a UTC container.
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(BUSINESS_TZ).strftime(fmt)
 
 
