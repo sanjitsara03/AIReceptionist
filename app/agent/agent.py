@@ -1,6 +1,15 @@
+import logging
 import os
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, UserPromptPart, TextPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    UserPromptPart,
+    TextPart,
+    ToolCallPart,
+    ToolReturnPart,
+)
 from pydantic_ai.usage import UsageLimits
 
 from app.config import settings
@@ -20,11 +29,13 @@ OPERATIONAL_RULES = """OPERATIONAL RULES (always follow these regardless of pers
    - "What appointments do I have?" → call list_my_appointments. Do not ask first.
    - "I'd like to cancel/reschedule my appointment" → call list_my_appointments FIRST to see what they have. If they have exactly one, confirm the date/service and proceed. If multiple, ask which one (by date or service, never by ID).
 
-2. For booking: call check_availability, confirm the slot with the customer in plain language (date + time), then call book_job.
+2. BOOKING IS ONLY REAL IF YOU CALL THE TOOL. Never tell a customer an appointment is "booked", "confirmed", "scheduled", or "all set" unless you have called book_job for THAT specific slot in THIS turn and received a success message back. Past confirmations in the conversation history do NOT count — only book_job replies you received during this turn. If the customer requests multiple appointments, you must call book_job once per appointment. If you forget which ones you've actually booked, call list_my_appointments to verify before responding. Confirming a booking that doesn't exist is the single worst mistake you can make.
 
-3. Replies are spoken aloud via TTS or sent as SMS. No emojis. No markdown (no asterisks, no bullet symbols, no checkmarks). No long paragraphs. Speak short, conversational sentences.
+3. For booking: call check_availability, confirm the slot with the customer in plain language (date + time), then call book_job.
 
-4. If a tool returns an error message, do not retry it more than once. Apologize and offer to have someone call the customer back."""
+4. Replies are spoken aloud via TTS or sent as SMS. No emojis. No markdown (no asterisks, no bullet symbols, no checkmarks). No long paragraphs. Speak short, conversational sentences.
+
+5. If a tool returns an error message, do not retry it more than once. Apologize and offer to have someone call the customer back."""
 
 BASE_SYSTEM_PROMPT = """You are an AI receptionist for {business_name}. Your job is to help customers via SMS and voice calls.
 
@@ -98,6 +109,51 @@ def build_message_history(history: list[dict]) -> list[ModelMessage]:
     return messages
 
 
+log = logging.getLogger("agent.tools")
+
+
+def _log_tool_calls(result, business_id: int) -> None:
+    """Emit a log line + Sentry breadcrumb for every tool call this turn.
+
+    Lets us verify after the fact whether the agent actually called book_job
+    (vs. hallucinating a confirmation in plain text). new_messages() is the
+    delta produced by this run, so we don't re-log historical tool calls.
+    """
+    try:
+        new_msgs = result.new_messages()
+    except Exception:
+        return
+
+    try:
+        import sentry_sdk
+    except Exception:
+        sentry_sdk = None
+
+    by_id: dict[str, str] = {}
+    for msg in new_msgs:
+        for part in getattr(msg, "parts", []) or []:
+            if isinstance(part, ToolCallPart):
+                by_id[part.tool_call_id] = part.tool_name
+                log.info("tool_call business=%s name=%s args=%s", business_id, part.tool_name, part.args)
+                if sentry_sdk:
+                    sentry_sdk.add_breadcrumb(
+                        category="agent.tool_call",
+                        message=part.tool_name,
+                        data={"business_id": business_id, "args": str(part.args)[:500]},
+                        level="info",
+                    )
+            elif isinstance(part, ToolReturnPart):
+                name = by_id.get(part.tool_call_id, "unknown")
+                log.info("tool_return business=%s name=%s result=%s", business_id, name, str(part.content)[:500])
+                if sentry_sdk:
+                    sentry_sdk.add_breadcrumb(
+                        category="agent.tool_return",
+                        message=name,
+                        data={"business_id": business_id, "result": str(part.content)[:500]},
+                        level="info",
+                    )
+
+
 async def get_ai_reply(conversation_history: list[dict], deps: AgentDeps) -> str:
     if not conversation_history:
         return "Hi! How can I help you today?"
@@ -112,6 +168,7 @@ async def get_ai_reply(conversation_history: list[dict], deps: AgentDeps) -> str
             deps=deps,
             usage_limits=AGENT_USAGE_LIMITS,
         )
+        _log_tool_calls(result, deps.business_id)
         return result.output
     except Exception as e:
         # Roll back the poisoned session — a tool's failed flush leaves it in
