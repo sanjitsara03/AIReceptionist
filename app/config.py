@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     # Hard ceiling on inbound AI-handled messages per business per UTC day.
     # Hit → the agent is skipped and we reply with a polite "limit reached" note.
     daily_message_limit_per_business: int = 500
+    # Comma-separated E.164 phone numbers allowed to interact with the AI.
+    # When set, any inbound SMS/voice from a number NOT in this list is dropped
+    # with a polite "demo line" reply — no LLM run, no booking possible. Leave
+    # blank to allow all callers (production / approved-A2P mode).
+    sms_allowlist: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -71,6 +76,11 @@ class Settings(BaseSettings):
     def allowed_origins_list(self) -> list[str]:
         """Parse the comma-separated allowed_origins into a clean list."""
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
+
+    @property
+    def sms_allowlist_set(self) -> frozenset[str]:
+        """Parse SMS_ALLOWLIST into a normalized E.164 set. Empty = allow all."""
+        return frozenset(n.strip() for n in self.sms_allowlist.split(",") if n.strip())
 
     @property
     def async_database_url(self) -> str:

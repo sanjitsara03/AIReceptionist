@@ -9,6 +9,7 @@ import { ConversationsView } from './views/ConversationsView.jsx';
 import { CustomersView } from './views/CustomersView.jsx';
 import { SettingsView } from './views/SettingsView.jsx';
 import { AdminApp } from './admin/AdminApp.jsx';
+import { SmsTerms } from './components/SmsTerms.jsx';
 
 const AUTH0_DOMAIN   = import.meta.env.VITE_AUTH0_DOMAIN;
 const AUTH0_CLIENT   = import.meta.env.VITE_AUTH0_CLIENT_ID;
@@ -35,6 +36,12 @@ export default function App() {
   // doesn't pay the Auth0 init cost or interfere with admin sessions.
   if (typeof window !== "undefined" && window.location.pathname.startsWith("/admin")) {
     return <AdminApp />;
+  }
+
+  // Public SMS terms / CTA page for Twilio toll-free verification. No auth,
+  // no Auth0 init, no app shell — intentionally a static, unindexed page.
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/sms-terms")) {
+    return <SmsTerms />;
   }
 
   return (

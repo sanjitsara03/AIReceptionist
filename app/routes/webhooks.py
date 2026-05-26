@@ -28,6 +28,25 @@ LIMIT_REACHED_REPLY = (
     "Sorry, this number has reached its daily message limit. "
     "Please try again tomorrow or call directly."
 )
+NOT_ALLOWED_REPLY = (
+    "This is a private demo line. Please contact the business directly. "
+    "Thanks!"
+)
+NOT_ALLOWED_VOICE = (
+    "This is a private demonstration line. Please contact the business directly. Goodbye."
+)
+
+
+def _caller_allowed(from_number: str | None) -> bool:
+    """Return True if this caller is allowed to interact with the AI.
+
+    Empty SMS_ALLOWLIST = allow everyone (production / A2P-approved mode).
+    Otherwise the from_number must match an entry exactly (E.164 form).
+    """
+    allow = settings.sms_allowlist_set
+    if not allow:
+        return True
+    return bool(from_number) and from_number in allow
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +188,17 @@ async def inbound_sms(request: Request, db: AsyncSession = Depends(get_db)):
     await save_message(db, conversation_id, MessageDirection.inbound, body)
     await db.commit()
 
+    # Allowlist gate (demo mode). Drop random callers BEFORE invoking the LLM
+    # so they can't create fake bookings or burn Claude tokens. We still save
+    # the inbound message above so attempted abuse is visible in the dashboard.
+    if not _caller_allowed(from_number):
+        await save_message(db, conversation_id, MessageDirection.outbound, NOT_ALLOWED_REPLY)
+        await db.commit()
+        publish(business_id, "conversation.updated", {"conversation_id": conversation_id})
+        response = MessagingResponse()
+        response.message(NOT_ALLOWED_REPLY)
+        return Response(content=str(response), media_type="application/xml")
+
     # Hard daily cap per business — skip the LLM if exceeded.
     if await _over_daily_cap(db, business_id):
         await save_message(db, conversation_id, MessageDirection.outbound, LIMIT_REACHED_REPLY)
@@ -204,6 +234,14 @@ async def inbound_sms(request: Request, db: AsyncSession = Depends(get_db)):
 async def inbound_call(request: Request, db: AsyncSession = Depends(get_db)):
     form = await request.form()
     to_number = form.get("To")
+    from_number = form.get("From")
+
+    # Allowlist gate (demo mode) — reject random callers immediately, no DB writes.
+    if not _caller_allowed(from_number):
+        response = VoiceResponse()
+        response.say(NOT_ALLOWED_VOICE, voice="Polly.Joanna")
+        response.hangup()
+        return Response(content=str(response), media_type="application/xml")
 
     # Look up the business so we can use its custom greeting
     greeting = VOICE_GREETING
@@ -244,6 +282,12 @@ async def voice_respond(request: Request, db: AsyncSession = Depends(get_db)):
     # Reject malformed payloads early
     if not from_number or not to_number:
         response.say("Sorry, something went wrong. Goodbye.", voice="Polly.Joanna")
+        response.hangup()
+        return Response(content=str(response), media_type="application/xml")
+
+    # Allowlist gate — belt-and-suspenders in case the entry handler was bypassed.
+    if not _caller_allowed(from_number):
+        response.say(NOT_ALLOWED_VOICE, voice="Polly.Joanna")
         response.hangup()
         return Response(content=str(response), media_type="application/xml")
 
