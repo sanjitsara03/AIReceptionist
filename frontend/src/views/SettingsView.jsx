@@ -632,7 +632,7 @@ function SaveBar({ saving, savedAt, onSave }) {
     <div className="row-flex" style={{ justifyContent: "flex-end", marginTop: 14, gap: 12, alignItems: "center" }}>
       {savedAt && (
         <span className="muted" style={{ fontSize: 12 }}>
-          Saved {savedAt.toLocaleTimeString()}
+          Saved {savedAt.toLocaleTimeString("en-US", { timeZone: "America/Los_Angeles" })}
         </span>
       )}
       <button className="btn primary" onClick={onSave} disabled={saving}>
@@ -643,27 +643,54 @@ function SaveBar({ saving, savedAt, onSave }) {
 }
 
 // ---------- date / time helpers ----------
+// All operator inputs (date pickers, time pickers) are interpreted as
+// California time, and all rendered times are shown in California time,
+// regardless of what timezone the operator's browser is in.
+
+const TZ = "America/Los_Angeles";
+
+function ptYMD(date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(date);
+  const get = (t) => parts.find((p) => p.type === t)?.value;
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
 
 function todayISO() {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return ptYMD(new Date());
 }
 
 function addDaysISO(days) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  // Add `days` to "today in PT". Build a UTC noon anchor for stability
+  // around DST transitions, then re-format in PT.
+  const today = todayISO();
+  const [y, m, d] = today.split("-").map(Number);
+  const anchor = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  anchor.setUTCDate(anchor.getUTCDate() + days);
+  return ptYMD(anchor);
 }
 
 function localToISO(date, time) {
-  // date is "YYYY-MM-DD" and time is "HH:MM" — treat as local, convert to ISO.
+  // date "YYYY-MM-DD" and time "HH:MM" are operator inputs interpreted in
+  // California time. Convert to a UTC ISO string for the backend.
   const [y, m, d] = date.split("-").map(Number);
   const [hh, mm] = time.split(":").map(Number);
-  return new Date(y, m - 1, d, hh, mm).toISOString();
+  // Strategy: build a candidate UTC instant assuming +00:00, then measure
+  // what wall-clock time it lands at in PT, and shift by the delta. Works
+  // through DST.
+  const guess = new Date(Date.UTC(y, m - 1, d, hh, mm));
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: TZ, hour12: false,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(guess);
+  const get = (t) => Number(parts.find((p) => p.type === t)?.value);
+  const asPT = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+  const offsetMs = guess.getTime() - asPT;
+  return new Date(guess.getTime() + offsetMs).toISOString();
 }
 
 function fmtTime(iso) {
-  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TZ });
 }
-
-function pad(n) { return String(n).padStart(2, "0"); }

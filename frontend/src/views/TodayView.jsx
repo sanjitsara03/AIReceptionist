@@ -18,6 +18,7 @@ function greeting() {
 function todayLabel() {
   return new Date().toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric",
+    timeZone: "America/Los_Angeles",
   });
 }
 

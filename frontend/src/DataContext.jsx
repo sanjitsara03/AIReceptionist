@@ -278,36 +278,53 @@ function techColor(id) {
   return TECH_COLORS[(id - 1) % TECH_COLORS.length];
 }
 
+// All times are rendered in California time regardless of the viewer's
+// browser locale — this is a US-West home-service business.
+const TZ = "America/Los_Angeles";
+
 function fmtTime(iso) {
   if (!iso) return "";
-  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TZ });
 }
 
 function fmt24(iso) {
-  // 24-hour "HH:MM" — used by TodayView's schedule math
+  // 24-hour "HH:MM" in PT — used by TodayView's schedule math
   if (!iso) return "";
-  const d = new Date(iso);
-  const h = String(d.getHours()).padStart(2, "0");
-  const m = String(d.getMinutes()).padStart(2, "0");
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: TZ, hour12: false, hour: "2-digit", minute: "2-digit",
+  }).formatToParts(new Date(iso));
+  const h = parts.find((p) => p.type === "hour")?.value ?? "00";
+  const m = parts.find((p) => p.type === "minute")?.value ?? "00";
   return `${h}:${m}`;
 }
 
 function fmtDate(iso) {
   if (!iso) return "";
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: TZ });
+}
+
+// Returns {y, m, d} for a Date as observed in California, so relative-day
+// math doesn't shift when the viewer is in a different timezone.
+function ptYMD(date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(date);
+  const get = (t) => Number(parts.find((p) => p.type === t)?.value);
+  return { y: get("year"), m: get("month"), d: get("day") };
 }
 
 function relativeDate(iso) {
   if (!iso) return null;
   const d = new Date(iso);
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const day = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const diff = (day - today) / 86400000;
+  const a = ptYMD(d);
+  const b = ptYMD(new Date());
+  const dayA = Date.UTC(a.y, a.m - 1, a.d);
+  const dayB = Date.UTC(b.y, b.m - 1, b.d);
+  const diff = (dayA - dayB) / 86400000;
   if (diff === 0) return "Today";
   if (diff === -1) return "Yesterday";
   if (diff === 1) return "Tomorrow";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: TZ });
 }
 
 function fmtRelativeDateTime(iso) {
@@ -321,12 +338,8 @@ function fmtRelativeTime(iso) {
   if (diff < 60) return "just now";
   if (diff < 3600) return `${Math.round(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.round(diff / 3600)}h ago`;
-  const d = new Date(iso);
-  const today = new Date();
-  if (
-    d.getFullYear() === today.getFullYear() &&
-    d.getMonth() === today.getMonth() &&
-    d.getDate() === today.getDate() - 1
-  ) return "Yest";
+  const a = ptYMD(new Date(iso));
+  const b = ptYMD(new Date());
+  if (a.y === b.y && a.m === b.m && a.d === b.d - 1) return "Yest";
   return fmtDate(iso);
 }
