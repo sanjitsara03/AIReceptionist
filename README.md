@@ -56,12 +56,12 @@ A multi-tenant AI receptionist for home-service businesses (plumbing, HVAC, elec
 | Layer | Choice |
 |---|---|
 | Backend | Python 3.12, FastAPI, async SQLAlchemy 2.0, Alembic |
-| Database | PostgreSQL (timezone-aware columns, UTC storage) |
+| Database | PostgreSQL |
 | Cache / queue | Redis |
-| AI | Claude Sonnet 4.6 via PydanticAI (typed tool-calling) |
-| Telephony | Twilio SMS + Voice (`<Gather>` speech-to-text loop) |
-| Auth | Auth0 (SPA flow, JWKS validation server-side with TTL cache + lock) |
-| Background | APScheduler in-process (PT timezone) |
+| AI | Claude Sonnet 4.6 via PydanticAI|
+| Telephony | Twilio SMS + Voice |
+| Auth | Auth0 |
+| Background | APScheduler |
 | Real-time | Server-Sent Events with in-memory broker |
 | Frontend | React 18, Vite, custom CSS with design tokens |
 | Infra | Docker, Railway (backend + frontend + Postgres + Redis) |
