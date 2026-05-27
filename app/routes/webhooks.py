@@ -175,6 +175,36 @@ def sanitize_for_speech(text: str) -> str:
     out = re.sub(r"^\s*\d+[.)]\s+", "", out, flags=re.MULTILINE)
     # Collapse whitespace
     out = re.sub(r"\s+", " ", out).strip()
+
+    # Strip "Day Date Time" / "Date Time" / "Slot Day Date Time" headers
+    # the model emits as a faked table header even when pipes are forbidden.
+    # Matches anywhere — the header rarely starts the message; usually it
+    # follows a lead-in like "Here are our times: ".
+    out = re.sub(
+        r"\b(?:Slot\s+ID\s+|Slot\s+)?(?:Day\s+)?Date\s+Time\b\s*[:,.-]?\s*",
+        "",
+        out,
+        flags=re.IGNORECASE,
+    )
+    out = re.sub(
+        r"\b(?:Slot\s+)?Day\s+Date\s+Time\b\s*[:,.-]?\s*",
+        "",
+        out,
+        flags=re.IGNORECASE,
+    )
+
+    # Insert a period between back-to-back times so TTS pauses correctly.
+    # Pattern: "...3:30 PM Thursday May 28 8:00 AM..." → "...3:30 PM. Thursday May 28 8:00 AM..."
+    days = "Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday"
+    out = re.sub(
+        rf"(\d{{1,2}}:\d{{2}}\s*(?:AM|PM|am|pm))\s+(?=(?:{days})\b)",
+        r"\1. ",
+        out,
+    )
+
+    # Strip any leftover [internal:...] tags the model might echo despite the prompt.
+    out = re.sub(r"\[internal:[^\]]*\]", "", out)
+    out = re.sub(r"\s+", " ", out).strip()
     return out
 
 

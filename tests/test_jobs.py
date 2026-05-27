@@ -259,10 +259,11 @@ async def test_list_my_appointments_returns_active_jobs(business, db):
     ctx = RunContext(deps=deps, model=None, usage=None, prompt=None)
     output = await list_my_appointments(ctx)
 
-    assert "Your upcoming appointments" in output
+    assert "upcoming appointments" in output.lower()
     assert "Drain cleaning" in output
     # Only the confirmed job is listed (we made 2, but only one is active).
-    assert output.count("Job ") == 1
+    # The new format tags the internal job id once per job listed.
+    assert output.count("[internal:job_id=") == 1
 
 
 async def test_list_my_appointments_empty(business, db):
