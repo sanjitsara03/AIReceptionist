@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Request, Response, Depends, HTTPException
@@ -8,7 +10,7 @@ from twilio.twiml.messaging_response import MessagingResponse
 from twilio.twiml.voice_response import VoiceResponse, Gather
 
 from app.config import settings, pt_today_bounds
-from app.database import get_db
+from app.database import AsyncSessionLocal, get_db
 from app.events import publish
 from app.limiter import limiter
 from app.models import Business, Customer, Message, Conversation, MessageDirection
@@ -20,6 +22,8 @@ from app.services.conversation import (
     load_history,
     save_message,
 )
+
+log = logging.getLogger("webhooks.voice")
 
 router = APIRouter()
 
@@ -173,6 +177,55 @@ def sanitize_for_speech(text: str) -> str:
     out = re.sub(r"\[internal:[^\]]*\]", "", out)
     out = re.sub(r"\s+", " ", out).strip()
     return out
+
+
+# Background agent execution for the voice ack/process pipeline.
+# Maps conversation_id to the asyncio.Task running the agent for the current
+# turn. In process, in memory, single worker only (same constraint as the
+# SSE broker in app/events.py).
+_pending_replies: dict[int, asyncio.Task] = {}
+
+
+def _acknowledgement_for(speech: str) -> str:
+    """Pick a short intent matching acknowledgement to play while the agent runs.
+
+    Checks are ordered specific to general so that a reschedule intent does
+    not get caught by the broader 'schedule' availability matcher.
+    """
+    s = (speech or "").lower()
+    if any(w in s for w in ("reschedul", "move my", "change my")):
+        return "Let me see what's available."
+    if "cancel" in s:
+        return "Let me look that up."
+    if any(w in s for w in ("what do i have", "my appointment", "my booking", "what's booked", "whats booked")):
+        return "Let me pull that up for you."
+    if any(w in s for w in ("available", "when", " time", "book", "schedule", "appointment slot")):
+        return "Let me check our availability."
+    return "One moment please."
+
+
+async def _run_agent_isolated(conversation_id: int, business_id: int, customer_id: int) -> str:
+    """Run the agent in a fresh DB session.
+
+    The original request's session closes when /respond returns, so the
+    background task needs its own session for tool calls and the outbound
+    save. Returns the sanitized reply text so /process can speak it.
+    """
+    async with AsyncSessionLocal() as db:
+        business = await db.get(Business, business_id)
+        customer = await db.get(Customer, customer_id)
+        conv = await db.get(Conversation, conversation_id)
+        if not business or not customer or not conv:
+            raise RuntimeError("business, customer, or conversation missing mid-call")
+
+        history = await load_history(db, conv)
+        deps = AgentDeps(db=db, business_id=business_id, business=business, customer=customer)
+        reply = sanitize_for_speech(await get_ai_reply(history, deps))
+
+        await save_message(db, conversation_id, MessageDirection.outbound, reply)
+        await db.commit()
+        publish(business_id, "conversation.updated", {"conversation_id": conversation_id})
+        return reply
 
 
 # SMS webhook
@@ -356,18 +409,63 @@ async def voice_respond(request: Request, db: AsyncSession = Depends(get_db)):
         response.hangup()
         return Response(content=str(response), media_type="application/xml")
 
-    # Get AI reply. Sanitize once at the source so DB, dashboard, and TwiML all see the same clean text.
-    history = await load_history(db, conversation)
-    deps = AgentDeps(db=db, business_id=business_id, business=business, customer=customer)
-    reply = sanitize_for_speech(await get_ai_reply(history, deps))
+    # Kick off agent.run in the background. The customer hears the
+    # acknowledgement TTS during the ~1.5s while the agent does its work, so
+    # perceived latency drops. /webhooks/voice/process picks up the result.
+    prior = _pending_replies.pop(conversation_id, None)
+    if prior and not prior.done():
+        prior.cancel()  # customer started a new turn before we delivered the old one
 
-    # Save AI reply; raw int IDs work even if the agent rolled back.
-    await save_message(db, conversation_id, MessageDirection.outbound, reply)
-    await db.commit()
+    customer_id = customer.id
+    task = asyncio.create_task(
+        _run_agent_isolated(conversation_id, business_id, customer_id)
+    )
+    _pending_replies[conversation_id] = task
 
-    publish(business_id, "conversation.updated", {"conversation_id": conversation_id})
+    response.say(_acknowledgement_for(speech_result), voice="Polly.Joanna")
+    response.redirect(
+        f"/webhooks/voice/process?conversation_id={conversation_id}",
+        method="POST",
+    )
+    return Response(content=str(response), media_type="application/xml")
 
-    # Speak the reply and listen again
+
+@router.post("/webhooks/voice/process", dependencies=[Depends(verify_twilio_signature)])
+@limiter.limit("120/minute")
+async def voice_process(request: Request, conversation_id: int):
+    """Pickup endpoint: await the background agent task and speak its reply."""
+    response = VoiceResponse()
+    task = _pending_replies.pop(conversation_id, None)
+
+    if task is None:
+        # Worker restart, duplicate Twilio delivery, or a missed handoff.
+        # Drop the customer back into a fresh Gather rather than crashing the call.
+        log.warning("voice_process: no pending task for conversation_id=%s", conversation_id)
+        response.say(
+            "Sorry, I lost track for a second. Could you say that again?",
+            voice="Polly.Joanna",
+        )
+        gather = Gather(
+            input="speech",
+            action="/webhooks/voice/respond",
+            method="POST",
+            speech_timeout="auto",
+            language="en-US",
+        )
+        response.append(gather)
+        return Response(content=str(response), media_type="application/xml")
+
+    try:
+        # Twilio's hard webhook timeout is 15s. Cap the agent at 12s so we
+        # have room to render TwiML and respond gracefully on overrun.
+        reply = await asyncio.wait_for(task, timeout=12)
+    except asyncio.TimeoutError:
+        log.warning("voice_process: agent timeout for conversation_id=%s", conversation_id)
+        reply = "Sorry, I'm taking longer than expected. Please try again in a moment."
+    except Exception:
+        log.exception("voice_process: agent raised for conversation_id=%s", conversation_id)
+        reply = "Sorry, something went wrong. Please try again."
+
     gather = Gather(
         input="speech",
         action="/webhooks/voice/respond",
@@ -377,8 +475,5 @@ async def voice_respond(request: Request, db: AsyncSession = Depends(get_db)):
     )
     gather.say(reply, voice="Polly.Joanna")
     response.append(gather)
-
-    # If customer doesn't say anything, hang up politely
     response.say("We didn't hear anything. Goodbye!", voice="Polly.Joanna")
-
     return Response(content=str(response), media_type="application/xml")

@@ -10,6 +10,7 @@ from pydantic_ai.messages import (
     ToolCallPart,
     ToolReturnPart,
 )
+from pydantic_ai.models.anthropic import AnthropicModelSettings
 from pydantic_ai.usage import UsageLimits
 
 from app.config import settings
@@ -105,9 +106,14 @@ Do not use emojis. Do not use markdown formatting like ** or *.
 Always be friendly and professional.
 If you are not sure about something, ask the customer to clarify."""
 
+# Anthropic prompt caching
 agent = Agent(
     model="anthropic:claude-sonnet-4-6",
     deps_type=AgentDeps,
+    model_settings=AnthropicModelSettings(
+        anthropic_cache_instructions=True,
+        anthropic_cache_tool_definitions=True,
+    ),
 )
 
 agent.tool(check_availability)
