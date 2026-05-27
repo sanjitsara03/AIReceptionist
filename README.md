@@ -2,7 +2,12 @@
 
 A multi-tenant AI receptionist for home-service businesses (plumbing, HVAC, electrical). Customers text or call a Twilio number; an LLM agent handles the conversation, books real appointments in the database, and updates the owner's dashboard in real time. One deployment serves many businesses, each with their own number, services, pricing, and personality prompt.
 
-**Live demo:** `<placeholder>` 
+<img width="1920" height="988" alt="Screenshot 2026-05-26 at 6 54 01 PM" src="https://github.com/user-attachments/assets/00f4c166-5e71-4385-a4b1-25db5e67ba1b" />
+<img width="1920" height="986" alt="Screenshot 2026-05-26 at 6 53 47 PM" src="https://github.com/user-attachments/assets/c6e08044-6fe4-429f-953b-c03b0dc24b1c" />
+<img width="1920" height="986" alt="Screenshot 2026-05-26 at 6 53 38 PM" src="https://github.com/user-attachments/assets/a9ce234b-7594-4bc4-8c65-228bf6a13e2c" />
+<img width="1920" height="987" alt="Screenshot 2026-05-26 at 6 53 14 PM" src="https://github.com/user-attachments/assets/03ce83b8-f246-4bd5-a5fb-61c1b2d9b87c" />
+<img width="1920" height="986" alt="Screenshot 2026-05-26 at 6 53 01 PM" src="https://github.com/user-attachments/assets/131630d5-ed1b-4976-90ed-5190ab143f8b" />
+
 
 ---
 
