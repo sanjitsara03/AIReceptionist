@@ -237,7 +237,7 @@ async def inbound_sms(request: Request, db: AsyncSession = Depends(get_db)):
     # Load full history and get AI reply
     history = await load_history(db, conversation)
     deps = AgentDeps(db=db, business_id=business_id, business=business, customer=customer)
-    reply = await get_ai_reply(history, deps)
+    reply = sanitize_for_speech(await get_ai_reply(history, deps))
 
     # Save outbound — uses int IDs so it works even if the agent rolled back.
     await save_message(db, conversation_id, MessageDirection.outbound, reply)
@@ -246,7 +246,7 @@ async def inbound_sms(request: Request, db: AsyncSession = Depends(get_db)):
     publish(business_id, "conversation.updated", {"conversation_id": conversation_id})
 
     response = MessagingResponse()
-    response.message(sanitize_for_speech(reply))
+    response.message(reply)
 
     return Response(content=str(response), media_type="application/xml")
 
@@ -361,10 +361,11 @@ async def voice_respond(request: Request, db: AsyncSession = Depends(get_db)):
         response.hangup()
         return Response(content=str(response), media_type="application/xml")
 
-    # Get AI reply
+    # Get AI reply. Sanitize once at the source so the DB, dashboard, and
+    # TwiML all see the same clean, table-free, markdown-free text.
     history = await load_history(db, conversation)
     deps = AgentDeps(db=db, business_id=business_id, business=business, customer=customer)
-    reply = await get_ai_reply(history, deps)
+    reply = sanitize_for_speech(await get_ai_reply(history, deps))
 
     # Save AI reply — uses int IDs so it works even if the agent rolled back.
     await save_message(db, conversation_id, MessageDirection.outbound, reply)
@@ -380,7 +381,7 @@ async def voice_respond(request: Request, db: AsyncSession = Depends(get_db)):
         speech_timeout="auto",
         language="en-US",
     )
-    gather.say(sanitize_for_speech(reply), voice="Polly.Joanna")
+    gather.say(reply, voice="Polly.Joanna")
     response.append(gather)
 
     # If customer doesn't say anything, hang up politely
