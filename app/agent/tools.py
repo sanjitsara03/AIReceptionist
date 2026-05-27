@@ -70,15 +70,22 @@ async def list_my_appointments(ctx: RunContext[AgentDeps]) -> str:
         return "No upcoming appointments on file for this phone number."
 
     lines = [
-        f"Job {job.id}: {job.job_type} on "
-        f"{fmt_pt(slot.start_time, '%A %b %d at %I:%M %p')} (status: {job.status.value})"
+        f"- {job.job_type} on {fmt_pt(slot.start_time, '%A %b %d at %I:%M %p')} "
+        f"(status: {job.status.value}) [internal:job_id={job.id}]"
         for job, slot in rows
     ]
-    return "Your upcoming appointments:\n" + "\n".join(lines)
+    return (
+        "Customer's upcoming appointments:\n"
+        + "\n".join(lines)
+        + "\n\nTell the customer ONLY the service + date/time + status. "
+        "NEVER mention job_id, the [internal:...] tag, or any numeric ID."
+    )
 
 
 async def check_availability(ctx: RunContext[AgentDeps]) -> str:
-    # Next 5 available slots for THIS business only.
+    # Soonest available slots for THIS business. We pull more than we need so
+    # we can dedupe by start_time (multiple technicians may share a time) and
+    # still return ~5 unique times to the model.
     result = await ctx.deps.db.execute(
         select(TimeSlot)
         .join(Technician, TimeSlot.technician_id == Technician.id)
@@ -88,18 +95,37 @@ async def check_availability(ctx: RunContext[AgentDeps]) -> str:
             TimeSlot.start_time > datetime.now(timezone.utc),
         )
         .order_by(TimeSlot.start_time.asc())
-        .limit(5)
+        .limit(25)
     )
     slots = result.scalars().all()
 
     if not slots:
         return "No available time slots at the moment."
 
+    # Dedupe by start_time — keep the first slot_id we see for each unique time.
+    seen: set = set()
+    unique: list = []
+    for slot in slots:
+        if slot.start_time in seen:
+            continue
+        seen.add(slot.start_time)
+        unique.append(slot)
+        if len(unique) == 5:
+            break
+
+    # The slot_id is an INTERNAL handle used to call book_job. The model is
+    # explicitly told (in agent rules) never to repeat slot_id values to the
+    # customer. Format makes that clear with the [internal:slot_id=N] tag.
     lines = [
-        f"Slot {slot.id}: {fmt_pt(slot.start_time, '%A %b %d at %I:%M %p')}"
-        for slot in slots
+        f"- {fmt_pt(slot.start_time, '%A %b %d at %I:%M %p')} [internal:slot_id={slot.id}]"
+        for slot in unique
     ]
-    return "Available slots:\n" + "\n".join(lines)
+    return (
+        "Available appointment times for the customer:\n"
+        + "\n".join(lines)
+        + "\n\nTell the customer ONLY the times above. NEVER mention slot_id, "
+        "the [internal:...] tag, or any numbers from this list."
+    )
 
 
 async def book_job(ctx: RunContext[AgentDeps], slot_id: int, job_type: str) -> str:
