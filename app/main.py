@@ -11,16 +11,13 @@ from app.routes import webhooks, jobs, customers, dashboard, technicians, conver
 from app.scheduler import start_scheduler, stop_scheduler
 from app.sentry import init_sentry
 
-# Initialize Sentry as early as possible — even import-time errors should be
-# captured. No-op if SENTRY_DSN is unset.
+# Initialize Sentry as early as possible ; even import time errors should be captured. No op if SENTRY_DSN is unset.
 init_sentry()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Surface the resolved webhook base URL so a typo in WEBHOOK_BASE_URL
-    # (trailing slash, http vs https, wrong host) is obvious in startup logs
-    # rather than silently 403-ing every Twilio webhook.
+    # Surface the resolved webhook base URL so a typo in WEBHOOK_BASE_URL (trailing slash, http vs https, wrong host) is obvious in startup logs rather than silently 403 ing every Twilio webhook.
     log = logging.getLogger("startup")
     if settings.validate_twilio_signature:
         if settings.webhook_base_url:
@@ -40,8 +37,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AI Receptionist", lifespan=lifespan)
 
-# Rate limiting — slowapi needs the limiter on app.state, plus a handler that
-# turns RateLimitExceeded into a 429 response with a Retry-After header.
+# Rate limiting ; slowapi needs the limiter on app.state, plus a handler that turns RateLimitExceeded into a 429 response with a Retry After header.
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 

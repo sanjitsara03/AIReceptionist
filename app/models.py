@@ -26,7 +26,7 @@ class MessageDirection(str, enum.Enum):
     outbound = "outbound"
 
 
-#Models
+# Models
 
 class Business(Base):
     __tablename__ = "businesses"

@@ -32,9 +32,7 @@ async def test_messages_returned_in_order(client, business, db):
     assert bodies == ["hi", "hello", "thanks"]
 
 
-# ---------------------------------------------------------------------------
-# POST /conversations/{id}/messages — owner SMS reply
-# ---------------------------------------------------------------------------
+# POST /conversations/{id}/messages ; owner SMS reply
 
 class _FakeTwilio:
     """Records what would have been sent so the test can assert against it."""
@@ -100,8 +98,7 @@ async def test_owner_reply_rejects_voice_conversation(client, business, db, fake
 
 
 async def test_owner_reply_blocks_cross_tenant(client, business, db, fake_twilio):
-    # A conversation belonging to a DIFFERENT business — the test client is
-    # authenticated as business.id, so this must 404.
+    # A conversation belonging to a DIFFERENT business ; the test client is authenticated as business.id, so this must 404.
     other_biz = Business(
         name="Other Co", twilio_number="+15559998888",
         owner_auth0_id="other|user",
@@ -133,7 +130,7 @@ async def test_daily_cap_query_uses_correct_joins(business, db):
     # No messages at all → under cap.
     assert await _over_daily_cap(db, business.id) is False
 
-    # Add one inbound message via the conversation graph and re-check.
+    # Add one inbound message via the conversation graph and re check.
     cust = (await db.execute(
         select(Customer).where(Customer.business_id == business.id).limit(1)
     )).scalar_one()
@@ -143,8 +140,7 @@ async def test_daily_cap_query_uses_correct_joins(business, db):
     db.add(Message(conversation_id=conv.id, direction=MessageDirection.inbound, body="hi"))
     await db.commit()
 
-    # Still under the default 500/day cap — but the query itself must
-    # execute without raising. That's the regression guard.
+    # Still under the default 500/day cap ; but the query itself must execute without raising. That's the regression guard.
     assert await _over_daily_cap(db, business.id) is False
 
 

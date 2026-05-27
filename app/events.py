@@ -14,7 +14,7 @@ import json
 from collections import defaultdict
 from typing import AsyncIterator
 
-# business_id 
+# business_id
 _subscribers: dict[int, set[asyncio.Queue]] = defaultdict(set)
 
 
@@ -47,7 +47,7 @@ async def subscribe(business_id: int) -> AsyncIterator[str]:
                 event = await asyncio.wait_for(queue.get(), timeout=25.0)
                 yield _format_sse(event)
             except asyncio.TimeoutError:
-                # Keep-alive ping so proxies don't kill an idle connection
+                # Keep alive ping so proxies don't kill an idle connection
                 yield ": ping\n\n"
     finally:
         _subscribers[business_id].discard(queue)

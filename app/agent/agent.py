@@ -23,14 +23,12 @@ from app.agent.tools import (
     list_my_appointments,
 )
 
-# Cap LLM round-trips and tokens per .run() so a runaway loop can't burn spend.
+# Cap LLM round trips and tokens per .run() so a runaway loop can't burn spend.
 AGENT_USAGE_LIMITS = UsageLimits(request_limit=8, total_tokens_limit=15000)
 
 os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
 
-# Always appended after either BASE_SYSTEM_PROMPT or the owner's custom prompt — these are
-# operational rules (multi-tenant safety, tool usage, voice/SMS hygiene) that owners shouldn't
-# be able to override by editing their personality prompt in Settings.
+# Always appended after either BASE_SYSTEM_PROMPT or the owner's custom prompt ; these are operational rules (multi tenant safety, tool usage, voice/SMS hygiene) that owners shouldn't be able to override by editing their personality prompt in Settings.
 OPERATIONAL_RULES = """OPERATIONAL RULES (always follow these regardless of personality):
 
 1. NEVER ask the customer for a "job ID", "appointment ID", "confirmation number", or anything similar — they will not have one. You already know who they are from their phone number.
@@ -214,8 +212,7 @@ async def get_ai_reply(conversation_history: list[dict], deps: AgentDeps) -> str
         _log_tool_calls(result, deps.business_id)
         return result.output
     except Exception as e:
-        # Roll back the poisoned session — a tool's failed flush leaves it in
-        # PendingRollbackError state, which would crash the caller's save_message.
+        # Roll back the poisoned session ; a tool's failed flush leaves it in PendingRollbackError state, which would crash the caller's save_message.
         try:
             await deps.db.rollback()
         except Exception:

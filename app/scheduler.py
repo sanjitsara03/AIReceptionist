@@ -52,8 +52,7 @@ async def send_reminders():
                 f"{fmt_pt(job.time_slot.start_time, '%I:%M %p')}. Reply STOP to opt out."
             )
 
-            # Twilio's SDK is sync — run it in a thread so the event loop
-            # stays responsive to incoming webhooks while we wait on Twilio.
+            # Twilio's SDK is sync ; run it in a thread so the event loop stays responsive to incoming webhooks while we wait on Twilio.
             await asyncio.to_thread(
                 twilio_client.messages.create,
                 body=message,
@@ -122,11 +121,7 @@ async def send_daily_digest():
             no_show = sum(1 for j in jobs if j.status == JobStatus.no_show)
             cancelled = sum(1 for j in jobs if j.status == JobStatus.cancelled)
 
-            # Digest delivery is intentionally a no-op until an owner_phone
-            # field is added to Business. The previous behavior texted "the
-            # first technician" which surprised techs and leaked metrics to
-            # the wrong person. Logging the digest so it still shows up in
-            # Railway logs / Sentry breadcrumbs for the owner to see.
+            # Digest delivery is intentionally a no op until an owner_phone field is added to Business. The previous behavior texted "the first technician" which surprised techs and leaked metrics to the wrong person. Logging the digest so it still shows up in Railway logs / Sentry breadcrumbs for the owner to see.
             log.info(
                 "Digest %s: confirmed=%d completed=%d no_shows=%d cancelled=%d",
                 business.name, confirmed, completed, no_show, cancelled,

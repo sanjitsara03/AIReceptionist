@@ -1,4 +1,4 @@
-#Sets up the database connection and session management using SQLAlchemy's asynchronous capabilities.
+# Sets up the database connection and session management using SQLAlchemy's asynchronous capabilities.
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase

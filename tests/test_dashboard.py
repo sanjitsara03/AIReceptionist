@@ -23,12 +23,11 @@ async def test_summary_counts_today(client, business, db):
         select(Customer).where(Customer.business_id == business.id).limit(1)
     )).scalar_one()
 
-    # Dashboard "today" is in PT (America/Los_Angeles), so anchor the slot
-    # to PT-midnight + 30 minutes and convert to UTC for storage.
+    # Dashboard "today" is in PT (America/Los_Angeles), so anchor the slot to PT midnight + 30 minutes and convert to UTC for storage.
     now_pt = datetime.now(BUSINESS_TZ)
     later_pt = now_pt.replace(hour=0, minute=30, second=0, microsecond=0)
     if later_pt.astimezone(timezone.utc) < datetime.now(timezone.utc) - timedelta(minutes=5):
-        # 00:30 PT today is already past — pick a safe slot a few minutes from now.
+        # 00:30 PT today is already past ; pick a safe slot a few minutes from now.
         later_pt = now_pt + timedelta(minutes=5)
     later_today = later_pt.astimezone(timezone.utc)
 

@@ -119,7 +119,7 @@ async def update_job_status(
     previous = job.status
     job.status = status
 
-    # If cancelling, free the slot so it can be re-booked
+    # If cancelling, free the slot so it can be re booked
     if status == JobStatus.cancelled and previous != JobStatus.cancelled and job.time_slot:
         job.time_slot.is_available = True
 
@@ -160,7 +160,7 @@ async def reschedule_job(
     job.technician_id = new_slot.technician_id
     new_slot.is_available = False
 
-    # If it was cancelled, picking a new slot re-confirms it
+    # If it was cancelled, picking a new slot re confirms it
     if job.status == JobStatus.cancelled:
         job.status = JobStatus.confirmed
 

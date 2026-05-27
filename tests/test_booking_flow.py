@@ -47,9 +47,7 @@ from app.agent.tools import (
 from app.routes.webhooks import sanitize_for_speech
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 async def _seed_slots(db, business, when_offsets_hours: list[float], tech_idx: int = 0):
     """Create available time slots for one of the business's techs. Returns the slots."""
@@ -91,9 +89,7 @@ def _ctx(db, business, customer) -> SimpleNamespace:
     return SimpleNamespace(deps=deps)
 
 
-# ===========================================================================
 # 1. Check availability
-# ===========================================================================
 
 async def test_check_availability_empty(db, business):
     cust = await _make_customer(db, business)
@@ -116,7 +112,7 @@ async def test_check_availability_returns_unique_times(db, business):
     cust = await _make_customer(db, business)
     out = await check_availability(_ctx(db, business, cust))
 
-    # Only two distinct human-facing times even though three rows exist
+    # Only two distinct human facing times even though three rows exist
     assert out.count("[internal:slot_id=") == 2
     assert "Available appointment times" in out
 
@@ -163,14 +159,12 @@ async def test_check_availability_output_format_safe_for_tts(db, business):
 
     # Must use the documented [internal:...] tag pattern so the LLM knows it's internal
     assert "[internal:slot_id=" in out
-    # No pipes or markdown — model should be receiving clean text
+    # No pipes or markdown ; model should be receiving clean text
     assert "|" not in out
     assert "**" not in out
 
 
-# ===========================================================================
 # 2. Book an appointment
-# ===========================================================================
 
 async def test_book_job_happy_path(db, business):
     slots = await _seed_slots(db, business, [3])
@@ -236,9 +230,7 @@ async def db_other_business(db):
     return other, slot
 
 
-# ===========================================================================
 # 3. List the customer's appointments
-# ===========================================================================
 
 async def test_list_my_appointments_empty(db, business):
     cust = await _make_customer(db, business)
@@ -264,7 +256,7 @@ async def test_list_my_appointments_shows_owned_and_hides_others(db, business):
     assert "drain cleaning" in out.lower()
     # The internal job_id tag is present (proves it came from the tool format, not text)
     assert "[internal:job_id=" in out
-    # Only ONE job listed — other customer's job is hidden
+    # Only ONE job listed ; other customer's job is hidden
     assert out.lower().count("drain cleaning") == 1
 
 
@@ -275,7 +267,7 @@ async def test_list_my_appointments_excludes_cancelled(db, business):
     await book_job(_ctx(db, business, cust), slots[0].id, "drain cleaning")
     await db.commit()
 
-    # Cancel and re-check
+    # Cancel and re check
     job = (await db.execute(select(Job).where(Job.customer_id == cust.id))).scalar_one()
     await cancel_job(_ctx(db, business, cust), job.id)
     await db.commit()
@@ -284,9 +276,7 @@ async def test_list_my_appointments_excludes_cancelled(db, business):
     assert "no upcoming" in out.lower()
 
 
-# ===========================================================================
 # 4. Reschedule
-# ===========================================================================
 
 async def test_reschedule_job_happy_path(db, business):
     slots = await _seed_slots(db, business, [3, 8])
@@ -339,9 +329,7 @@ async def test_reschedule_rejects_wrong_customer_job(db, business):
     assert "couldn't find" in out.lower()
 
 
-# ===========================================================================
 # 5. Cancel a single appointment
-# ===========================================================================
 
 async def test_cancel_job_happy_path(db, business):
     slots = await _seed_slots(db, business, [3])
@@ -379,9 +367,7 @@ async def test_cancel_job_rejects_wrong_customer(db, business):
     assert fresh_job.status == JobStatus.confirmed  # untouched
 
 
-# ===========================================================================
 # 6. Cancel ALL
-# ===========================================================================
 
 async def test_cancel_all_jobs_empty(db, business):
     cust = await _make_customer(db, business)
@@ -411,9 +397,7 @@ async def test_cancel_all_jobs_cancels_multiple(db, business):
 
 
 async def test_cancel_all_jobs_handles_job_with_no_time_slot(db, business):
-    # Regression: cancel_all_jobs used to silently drop jobs whose time_slot
-    # was null because the outerjoin filter killed them. or_(... is_(None))
-    # fixed it.
+    # Regression: cancel_all_jobs used to silently drop jobs whose time_slot was null because the outerjoin filter killed them. or_(... is_(None)) fixed it.
     cust = await _make_customer(db, business)
     db.add(Job(
         business_id=business.id,
@@ -440,7 +424,7 @@ async def test_cancel_all_jobs_scoped_to_caller(db, business):
     await book_job(_ctx(db, business, cust2), slots[1].id, "pipe repair")
     await db.commit()
 
-    # cust1 cancels all — cust2's job is untouched
+    # cust1 cancels all ; cust2's job is untouched
     await cancel_all_jobs(_ctx(db, business, cust1))
     await db.commit()
 
@@ -449,9 +433,7 @@ async def test_cancel_all_jobs_scoped_to_caller(db, business):
     assert cust2_jobs[0].status == JobStatus.confirmed
 
 
-# ===========================================================================
 # 7. Estimate matching (price guesser used during booking)
-# ===========================================================================
 
 def test_estimate_exact_match():
     assert _estimate_for("drain cleaning") == 180
@@ -471,9 +453,7 @@ def test_estimate_unknown_returns_none():
     assert _estimate_for("rocket surgery") is None
 
 
-# ===========================================================================
 # 8. SMS / voice webhook entry points
-# ===========================================================================
 
 async def test_inbound_sms_creates_customer_and_conversation(client, business):
     r = await client.post(
@@ -484,10 +464,7 @@ async def test_inbound_sms_creates_customer_and_conversation(client, business):
             "Body": "Hi, I need a sink fixed",
         },
     )
-    # We don't run the real LLM in tests — without an API key the agent will
-    # fall back to the safe error string from the exception handler. Either
-    # 200 with TwiML or a managed fallback is acceptable; the side-effects
-    # below are what matter.
+    # We don't run the real LLM in tests ; without an API key the agent will fall back to the safe error string from the exception handler. Either 200 with TwiML or a managed fallback is acceptable; the side effects below are what matter.
     assert r.status_code == 200
     assert "<?xml" in r.text or "Response" in r.text
 
@@ -515,9 +492,7 @@ async def test_voice_webhook_returns_twiml(client, business):
     assert "Gather" in r.text or "Say" in r.text
 
 
-# ===========================================================================
 # 9. Output sanitization (so a customer never hears "vertical bar")
-# ===========================================================================
 
 def test_sanitize_strips_pipes():
     out = sanitize_for_speech("| a | b | c |")

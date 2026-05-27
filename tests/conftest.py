@@ -24,15 +24,10 @@ TEST_DB_URL = os.getenv(
 )
 os.environ["DATABASE_URL"] = TEST_DB_URL
 
-# Force-disable Sentry in tests, even if the local .env has a real DSN.
-# Otherwise every CI run + every local test run would spam the real Sentry
-# project with fake errors from `test_unhandled_exception_returns_envelope`.
+# Force disable Sentry in tests, even if the local .env has a real DSN. Otherwise every CI run + every local test run would spam the real Sentry project with fake errors from `test_unhandled_exception_returns_envelope`.
 os.environ["SENTRY_DSN"] = ""
 
-# Disable production safety guards in tests:
-#   - Twilio signature validation would require us to sign every test payload.
-#   - Rate limits would make tests order-dependent + flaky.
-# These flags are read by app.config and app.limiter at import time.
+# Disable production safety guards in tests: - Twilio signature validation would require us to sign every test payload. - Rate limits would make tests order dependent + flaky. These flags are read by app.config and app.limiter at import time.
 os.environ["VALIDATE_TWILIO_SIGNATURE"] = "false"
 os.environ["RATE_LIMITS_ENABLED"] = "false"
 
@@ -42,7 +37,7 @@ from app.main import app                       # noqa: E402
 from app.models import Business, Technician, Customer  # noqa: E402
 
 
-# Module-level engine — one connection pool for the whole test session
+# Module level engine ; one connection pool for the whole test session
 engine = create_async_engine(TEST_DB_URL, poolclass=NullPool)
 TestSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -61,7 +56,7 @@ async def setup_database():
 async def db(setup_database) -> AsyncSession:
     """A clean session per test. Truncates all tables before the test runs."""
     async with TestSessionLocal() as session:
-        # Truncate everything — fast and gives a clean slate without dropping tables
+        # Truncate everything ; fast and gives a clean slate without dropping tables
         from sqlalchemy import text
         await session.execute(text(
             "TRUNCATE invites, messages, conversations, jobs, time_slots, "
@@ -94,9 +89,7 @@ async def client(db):
     app.dependency_overrides[get_current_auth0_id] = _override_auth0_id
 
     async with LifespanManager(app):
-        # raise_app_exceptions=False — match production behavior where the
-        # global exception handler converts crashes to 500 responses instead
-        # of re-raising into the test caller.
+        # raise_app_exceptions=False ; match production behavior where the global exception handler converts crashes to 500 responses instead of re raising into the test caller.
         transport = ASGITransport(app=app, raise_app_exceptions=False)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             yield ac

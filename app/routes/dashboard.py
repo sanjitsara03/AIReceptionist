@@ -14,8 +14,7 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
 def _today_bounds():
-    # "Today" is California-local, not UTC. UTC midnight rolls over at 5pm PT
-    # which makes the dashboard's "today's jobs" wrong all afternoon.
+    # "Today" is California local, not UTC. UTC midnight rolls over at 5pm PT which makes the dashboard's "today's jobs" wrong all afternoon.
     return pt_today_bounds()
 
 
@@ -91,8 +90,7 @@ async def get_feed(
     )
     convs = result.scalars().all()
 
-    # Build a {customer_id -> (estimate, tech_name)} map from each customer's
-    # most-recent job, so the feed can show $ and assigned tech without N+1.
+    # Build a {customer_id -> (estimate, tech_name)} map from each customer's most recent job, so the feed can show $ and assigned tech without N+1.
     customer_ids = [c.customer_id for c in convs]
     latest_by_customer: dict[int, tuple[int | None, str | None]] = {}
     if customer_ids:

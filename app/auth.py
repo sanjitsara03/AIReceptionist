@@ -21,9 +21,7 @@ from app.models import Business
 bearer = HTTPBearer()
 
 
-# JWKS cache with a 5 minute TTL. The lock prevents N concurrent first
-# requests from each firing the HTTP call on a cold container — they all
-# wait on the first one and then read from cache.
+# JWKS cache with a 5 minute TTL. The lock prevents N concurrent first requests from each firing the HTTP call on a cold container ; they all wait on the first one and then read from cache.
 _JWKS_TTL_SECONDS = 300
 _jwks_cache: tuple[float, dict] | None = None
 _jwks_lock = asyncio.Lock()
@@ -36,7 +34,7 @@ async def _get_jwks() -> dict:
         return _jwks_cache[1]
 
     async with _jwks_lock:
-        # Re-check under the lock — another coroutine may have populated it.
+        # Re check under the lock ; another coroutine may have populated it.
         now = time.monotonic()
         if _jwks_cache is not None and now - _jwks_cache[0] < _JWKS_TTL_SECONDS:
             return _jwks_cache[1]

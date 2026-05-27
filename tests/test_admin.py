@@ -7,7 +7,7 @@ from app.config import settings
 from app.models import Business, Customer, Job, JobStatus, TimeSlot, Technician, Conversation, Message, MessageDirection, Invite
 
 
-# ----- auth -----
+# auth
 
 async def test_admin_requires_secret_header(client, business):
     """Without the X-Admin-Secret header, every admin endpoint should 422."""
@@ -27,7 +27,7 @@ async def test_admin_rejects_wrong_secret(client, business):
     assert r.status_code == 403
 
 
-# ----- list -----
+# list
 
 async def test_list_businesses_includes_counts(client, business, db):
     """The list endpoint reports per-business customer/job/conversation counts."""
@@ -61,7 +61,7 @@ async def test_list_businesses_includes_counts(client, business, db):
     assert b["owner_auth0_id"] == "test|user-1"
 
 
-# ----- create -----
+# create
 
 async def test_create_business(client, business):
     """Happy path: create returns the new business with zero counts."""
@@ -91,7 +91,7 @@ async def test_create_business_duplicate_twilio_number(client, business):
     assert r.status_code == 409
 
 
-# ----- delete -----
+# delete
 
 async def test_delete_business_cascades(client, business, db):
     """Deleting a business removes all dependent rows (no orphans left)."""
@@ -118,7 +118,7 @@ async def test_delete_business_cascades(client, business, db):
                             headers={"X-Admin-Secret": settings.admin_secret})
     assert r.status_code == 204
 
-    # Verify cascade — every related row is gone
+    # Verify cascade ; every related row is gone
     for model in (Business, Customer, Technician, TimeSlot, Job, Conversation, Message, Invite):
         count = (await db.execute(select(model))).scalars().all()
         assert len(count) == 0, f"orphan rows in {model.__tablename__}: {len(count)}"
@@ -130,7 +130,7 @@ async def test_delete_nonexistent_business(client, business):
     assert r.status_code == 404
 
 
-# ----- invites listing -----
+# invites listing
 
 async def test_admin_invites_list_filters_by_business(client, business, db):
     """Invites for one business shouldn't leak into another's list."""

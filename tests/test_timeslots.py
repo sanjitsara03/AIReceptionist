@@ -17,13 +17,13 @@ async def test_available_slots_returns_future_open_slots_only(client, business, 
 
     now = datetime.now(timezone.utc)
     db.add_all([
-        # Future, open — should appear
+        # Future, open ; should appear
         TimeSlot(technician_id=tech.id, start_time=now + timedelta(days=1),
                  end_time=now + timedelta(days=1, hours=1), is_available=True),
-        # Future, taken — should NOT appear
+        # Future, taken ; should NOT appear
         TimeSlot(technician_id=tech.id, start_time=now + timedelta(days=2),
                  end_time=now + timedelta(days=2, hours=1), is_available=False),
-        # Past, open — should NOT appear
+        # Past, open ; should NOT appear
         TimeSlot(technician_id=tech.id, start_time=now - timedelta(days=1),
                  end_time=now - timedelta(days=1) + timedelta(hours=1), is_available=True),
     ])
@@ -56,7 +56,7 @@ async def test_available_slots_respects_days_window(client, business, db):
     assert len(r.json()) == 1
 
 
-# ----- list all slots (booked + free) -----
+# list all slots (booked + free)
 
 async def test_list_all_slots_includes_booked(client, business, db):
     tech = (await db.execute(
@@ -78,7 +78,7 @@ async def test_list_all_slots_includes_booked(client, business, db):
     assert {s["is_available"] for s in body} == {True, False}
 
 
-# ----- create single slot -----
+# create single slot
 
 async def test_create_slot(client, business, db):
     tech = (await db.execute(
@@ -127,7 +127,7 @@ async def test_create_slot_rejects_other_business_tech(client, business, db):
     assert r.status_code == 404
 
 
-# ----- bulk create -----
+# bulk create
 
 async def test_bulk_create_weekdays(client, business, db):
     """5 weekdays × (17-9 = 8 hours)/2hr slot = 5 × 4 = 20 slots."""
@@ -136,7 +136,7 @@ async def test_bulk_create_weekdays(client, business, db):
     )).scalar_one()
 
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    # Make a Monday → next Monday window (covers exactly Mon-Sun)
+    # Make a Monday → next Monday window (covers exactly Mon Sun)
     days_until_monday = (7 - today.weekday()) % 7 or 7
     start = today + timedelta(days=days_until_monday)
     end = start + timedelta(days=7)
@@ -172,7 +172,7 @@ async def test_bulk_create_rejects_huge_range(client, business, db):
     assert r.status_code == 400  # capped at 90 days
 
 
-# ----- delete slot -----
+# delete slot
 
 async def test_delete_available_slot(client, business, db):
     tech = (await db.execute(

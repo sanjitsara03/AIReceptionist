@@ -9,7 +9,7 @@ from app.models import TimeSlot, Job, JobStatus, Customer, Business, Technician
 from app.events import publish
 
 
-# Rough price estimates by job type — used so dashboard revenue isn't always 0.
+# Rough price estimates by job type ; used so dashboard revenue isn't always 0.
 JOB_ESTIMATES = {
     "drain cleaning": 180,
     "pipe repair": 380,
@@ -25,9 +25,7 @@ JOB_ESTIMATES = {
 
 
 def _estimate_for(job_type: str) -> int | None:
-    # Case-insensitive match. Prefer exact, then longest known-key contained
-    # in the input. Only check `known in key` (not the reverse) so a short
-    # generic word like "repair" doesn't match the long "pipe repair" entry.
+    # Case insensitive match. Prefer exact, then longest known key contained in the input. Only check `known in key` (not the reverse) so a short generic word like "repair" doesn't match the long "pipe repair" entry.
     key = job_type.lower().strip()
     if key in JOB_ESTIMATES:
         return JOB_ESTIMATES[key]
@@ -49,7 +47,7 @@ class AgentDeps(BaseModel):
 
 
 async def list_my_appointments(ctx: RunContext[AgentDeps]) -> str:
-    # Caller's own upcoming jobs — agent must call this instead of asking for a "job ID".
+    # Caller's own upcoming jobs ; agent must call this instead of asking for a "job ID".
     db = ctx.deps.db
 
     active_statuses = [JobStatus.confirmed, JobStatus.pending, JobStatus.in_progress]
@@ -83,9 +81,7 @@ async def list_my_appointments(ctx: RunContext[AgentDeps]) -> str:
 
 
 async def check_availability(ctx: RunContext[AgentDeps]) -> str:
-    # Soonest available slots for THIS business. We pull more than we need so
-    # we can dedupe by start_time (multiple technicians may share a time) and
-    # still return ~5 unique times to the model.
+    # Soonest available slots for THIS business. We pull more than we need so we can dedupe by start_time (multiple technicians may share a time) and still return ~5 unique times to the model.
     result = await ctx.deps.db.execute(
         select(TimeSlot)
         .join(Technician, TimeSlot.technician_id == Technician.id)
@@ -102,7 +98,7 @@ async def check_availability(ctx: RunContext[AgentDeps]) -> str:
     if not slots:
         return "No available time slots at the moment."
 
-    # Dedupe by start_time — keep the first slot_id we see for each unique time.
+    # Dedupe by start_time ; keep the first slot_id we see for each unique time.
     seen: set = set()
     unique: list = []
     for slot in slots:
@@ -113,9 +109,7 @@ async def check_availability(ctx: RunContext[AgentDeps]) -> str:
         if len(unique) == 5:
             break
 
-    # The slot_id is an INTERNAL handle used to call book_job. The model is
-    # explicitly told (in agent rules) never to repeat slot_id values to the
-    # customer. Format makes that clear with the [internal:slot_id=N] tag.
+    # The slot_id is an INTERNAL handle used to call book_job. The model is explicitly told (in agent rules) never to repeat slot_id values to the customer. Format makes that clear with the [internal:slot_id=N] tag.
     lines = [
         f"- {fmt_pt(slot.start_time, '%A %b %d at %I:%M %p')} [internal:slot_id={slot.id}]"
         for slot in unique
@@ -129,7 +123,7 @@ async def check_availability(ctx: RunContext[AgentDeps]) -> str:
 
 
 async def book_job(ctx: RunContext[AgentDeps], slot_id: int, job_type: str) -> str:
-    # Book a job for the caller — slot must belong to THIS business.
+    # Book a job for the caller ; slot must belong to THIS business.
     db = ctx.deps.db
 
     result = await db.execute(
@@ -169,7 +163,7 @@ async def book_job(ctx: RunContext[AgentDeps], slot_id: int, job_type: str) -> s
 
 
 async def reschedule_job(ctx: RunContext[AgentDeps], job_id: int, new_slot_id: int) -> str:
-    # Reschedule — job AND new slot must both belong to THIS business.
+    # Reschedule ; job AND new slot must both belong to THIS business.
     db = ctx.deps.db
 
     job_result = await db.execute(
@@ -216,16 +210,12 @@ async def reschedule_job(ctx: RunContext[AgentDeps], job_id: int, new_slot_id: i
 
 
 async def cancel_all_jobs(ctx: RunContext[AgentDeps]) -> str:
-    # Cancel every upcoming/active job for THIS customer at THIS business.
-    # Use when the caller says "cancel all my appointments", "cancel everything",
-    # "wipe my schedule", etc. Prefer cancel_job when they name a specific one.
+    # Cancel every upcoming/active job for THIS customer at THIS business. Use when the caller says "cancel all my appointments", "cancel everything", "wipe my schedule", etc. Prefer cancel_job when they name a specific one.
     db = ctx.deps.db
 
     active_statuses = [JobStatus.confirmed, JobStatus.pending, JobStatus.in_progress]
     now_utc = datetime.now(timezone.utc)
-    # Outer join so jobs with no time_slot still come through. The
-    # "must be in the future" check is wrapped in or_(... is_(None)) so
-    # NULL doesn't silently drop those jobs.
+    # Outer join so jobs with no time_slot still come through. The "must be in the future" check is wrapped in or_(... is_(None)) so NULL doesn't silently drop those jobs.
     result = await db.execute(
         select(Job, TimeSlot)
         .outerjoin(TimeSlot, Job.time_slot_id == TimeSlot.id)
@@ -256,7 +246,7 @@ async def cancel_all_jobs(ctx: RunContext[AgentDeps]) -> str:
 
 
 async def cancel_job(ctx: RunContext[AgentDeps], job_id: int) -> str:
-    # Cancel — must belong to THIS business.
+    # Cancel ; must belong to THIS business.
     db = ctx.deps.db
 
     job_result = await db.execute(

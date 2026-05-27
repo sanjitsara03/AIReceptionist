@@ -31,9 +31,7 @@ async def _verify_tech_belongs_to_business(
     return tech
 
 
-# ----------------------------------------------------------------------------
 # Read endpoints
-# ----------------------------------------------------------------------------
 
 @router.get("/available", response_model=list[TimeSlotResponse])
 async def list_available(
@@ -107,9 +105,7 @@ async def list_all(
     ]
 
 
-# ----------------------------------------------------------------------------
 # Mutations
-# ----------------------------------------------------------------------------
 
 @router.post("", response_model=TimeSlotFullResponse, status_code=201)
 async def create_slot(
@@ -169,9 +165,7 @@ async def create_slots_bulk(
     slot_delta = timedelta(minutes=payload.slot_minutes)
     created: list[TimeSlot] = []
 
-    # Anchor the weekday + hour math in California time. "Tuesday 9am to 5pm"
-    # means PT Tuesday and PT business hours regardless of where the caller
-    # or container is. Naive inputs are assumed to be UTC.
+    # Anchor the weekday + hour math in California time. "Tuesday 9am to 5pm" means PT Tuesday and PT business hours regardless of where the caller or container is. Naive inputs are assumed to be UTC.
     from app.config import BUSINESS_TZ
 
     def _to_pt(dt: datetime) -> datetime:
@@ -188,7 +182,7 @@ async def create_slots_bulk(
 
     while day < end_day:
         if day.weekday() in weekdays:
-            # PT wall-clock cursor; converted to UTC before inserting.
+            # PT wall clock cursor; converted to UTC before inserting.
             cursor = day.replace(hour=payload.day_start_hour)
             day_close = day.replace(hour=0) + timedelta(hours=payload.day_end_hour)
             while cursor + slot_delta <= day_close:

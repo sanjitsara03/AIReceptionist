@@ -234,12 +234,7 @@ async def test_create_job_missing_required_field(client, business, db):
     assert r.status_code == 422
 
 
-# ---------------------------------------------------------------------------
-# Agent tool: list_my_appointments
-# ---------------------------------------------------------------------------
-# Regression tests for the bug where the AI asked callers for a "job ID" they
-# couldn't possibly know, because no tool existed to look up appointments by
-# the caller's phone number.
+# Agent tool: list_my_appointments Regression tests for the bug where the AI asked callers for a "job ID" they couldn't possibly know, because no tool existed to look up appointments by the caller's phone number.
 
 async def test_list_my_appointments_returns_active_jobs(business, db):
     from app.agent.tools import AgentDeps, list_my_appointments
@@ -249,8 +244,7 @@ async def test_list_my_appointments_returns_active_jobs(business, db):
         select(Customer).where(Customer.business_id == business.id).limit(1)
     )).scalar_one()
 
-    # Create one confirmed (future) + one cancelled (future) + one completed (past).
-    # Only the confirmed-future one should appear.
+    # Create one confirmed (future) + one cancelled (future) + one completed (past). Only the confirmed future one should appear.
     await _make_job(db, business, status=JobStatus.confirmed)
     await _make_job(db, business, status=JobStatus.cancelled)
     await db.commit()
@@ -261,8 +255,7 @@ async def test_list_my_appointments_returns_active_jobs(business, db):
 
     assert "upcoming appointments" in output.lower()
     assert "Drain cleaning" in output
-    # Only the confirmed job is listed (we made 2, but only one is active).
-    # The new format tags the internal job id once per job listed.
+    # Only the confirmed job is listed (we made 2, but only one is active). The new format tags the internal job id once per job listed.
     assert output.count("[internal:job_id=") == 1
 
 
@@ -286,7 +279,7 @@ async def test_list_my_appointments_is_per_customer(business, db):
     from app.agent.tools import AgentDeps, list_my_appointments
     from pydantic_ai import RunContext
 
-    # The default fixture creates one customer — make a second one with their own job.
+    # The default fixture creates one customer ; make a second one with their own job.
     other_cust = Customer(business_id=business.id, name="Other Person", phone="+15550008888")
     db.add(other_cust)
     await db.flush()
@@ -314,7 +307,7 @@ async def test_list_my_appointments_is_per_customer(business, db):
     ))
     await db.commit()
 
-    # Look up appointments for the ORIGINAL test customer — should be empty.
+    # Look up appointments for the ORIGINAL test customer ; should be empty.
     cust = (await db.execute(
         select(Customer).where(Customer.business_id == business.id, Customer.phone != "+15550008888").limit(1)
     )).scalar_one()

@@ -3,9 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models import Customer, Conversation, Message, MessageDirection
 
-# A conversation older than this is treated as stale — the next inbound
-# starts a fresh thread. Keeps message rows bounded and gives the agent
-# a clean history window.
+# A conversation older than this is treated as stale ; the next inbound starts a fresh thread. Keeps message rows bounded and gives the agent a clean history window.
 CONVERSATION_STALE_AFTER = timedelta(days=7)
 
 
@@ -46,7 +44,7 @@ async def get_or_create_conversation(
     if conversation is not None:
         last_active = conversation.updated_at or conversation.created_at
         if last_active is not None:
-            # updated_at from the DB is timezone-aware (DateTime(timezone=True))
+            # updated_at from the DB is timezone aware (DateTime(timezone=True))
             if datetime.now(timezone.utc) - last_active > CONVERSATION_STALE_AFTER:
                 stale = True
 
@@ -58,15 +56,12 @@ async def get_or_create_conversation(
     return conversation
 
 
-# Max prior messages fed to the AI on each turn. ~15 turns of context is enough
-# for the agent to stay coherent and keeps the per-reply Claude bill bounded for
-# customers who text us hundreds of times over months.
+# Max prior messages fed to the AI on each turn. ~15 turns of context is enough for the agent to stay coherent and keeps the per reply Claude bill bounded for customers who text us hundreds of times over months.
 MAX_HISTORY_MESSAGES = 30
 
 
 async def load_history(db: AsyncSession, conversation: Conversation) -> list[dict]:
-    # Grab the most recent MAX_HISTORY_MESSAGES, then reverse to chronological
-    # order so the agent reads them oldest → newest.
+    # Grab the most recent MAX_HISTORY_MESSAGES, then reverse to chronological order so the agent reads them oldest → newest.
     result = await db.execute(
         select(Message)
         .where(Message.conversation_id == conversation.id)
@@ -84,12 +79,10 @@ async def load_history(db: AsyncSession, conversation: Conversation) -> list[dic
 
 
 async def save_message(db: AsyncSession, conversation_id: int, direction: MessageDirection, body: str) -> Message:
-    # Takes a raw int (not the Conversation ORM object) so callers can keep
-    # working even if the session was rolled back and the ORM object expired.
+    # Takes a raw int (not the Conversation ORM object) so callers can keep working even if the session was rolled back and the ORM object expired.
     message = Message(conversation_id=conversation_id, direction=direction, body=body)
     db.add(message)
-    # Bump the conversation's updated_at so the staleness check in
-    # get_or_create_conversation reflects last activity, not last edit.
+    # Bump the conversation's updated_at so the staleness check in get_or_create_conversation reflects last activity, not last edit.
     conv = await db.get(Conversation, conversation_id)
     if conv is not None:
         conv.updated_at = datetime.now(timezone.utc)

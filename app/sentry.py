@@ -22,10 +22,8 @@ def init_sentry() -> None:
     sentry_sdk.init(
         dsn=settings.sentry_dsn,
         environment=settings.environment,
-        # Errors-only. Bump to e.g. 0.1 to sample 10% of requests for
-        # performance monitoring — but that uses Sentry quota fast.
+        # Errors only. Bump to e.g. 0.1 to sample 10% of requests for performance monitoring ; but that uses Sentry quota fast.
         traces_sample_rate=0.0,
-        # Don't send IPs / Authorization headers / cookies by default.
-        # Use sentry_sdk.set_user(...) explicitly if you want user context.
+        # Don't send IPs / Authorization headers / cookies by default. Use sentry_sdk.set_user(...) explicitly if you want user context.
         send_default_pii=False,
     )

@@ -12,8 +12,7 @@ async def test_unhandled_exception_returns_envelope(client):
     async def simulated_bug():
         raise ValueError("internal detail that should NOT leak")
 
-    # Replace the test's normal auth override with one that raises an
-    # unexpected exception. The global handler should catch it.
+    # Replace the test's normal auth override with one that raises an unexpected exception. The global handler should catch it.
     app.dependency_overrides[get_current_business_id] = simulated_bug
 
     r = await client.get("/jobs")

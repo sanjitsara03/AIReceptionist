@@ -15,13 +15,10 @@ from app.services.conversation import save_message
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
-# Module-level Twilio client — same pattern as app/scheduler.py. The SDK is
-# sync, so individual calls are wrapped in asyncio.to_thread so we don't block
-# the event loop while waiting on Twilio.
+# Module level Twilio client ; same pattern as app/scheduler.py. The SDK is sync, so individual calls are wrapped in asyncio.to_thread so we don't block the event loop while waiting on Twilio.
 twilio_client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
 
-# Twilio SMS max body length is 1600 chars; we cap a little tighter to encourage
-# concise replies and avoid surprising multi-part charges.
+# Twilio SMS max body length is 1600 chars; we cap a little tighter to encourage concise replies and avoid surprising multi part charges.
 MAX_REPLY_LENGTH = 1000
 
 
@@ -91,7 +88,7 @@ async def send_owner_reply(
     if len(body) > MAX_REPLY_LENGTH:
         raise HTTPException(status_code=422, detail=f"Message too long (max {MAX_REPLY_LENGTH} chars).")
 
-    # Pull the conversation with its customer + the business in one round-trip.
+    # Pull the conversation with its customer + the business in one round trip.
     result = await db.execute(
         select(Conversation)
         .join(Conversation.customer)
@@ -101,8 +98,7 @@ async def send_owner_reply(
     conversation = result.scalar_one_or_none()
 
     if not conversation:
-        # Either it doesn't exist or it belongs to a different business — same
-        # 404 either way so we don't leak cross-tenant existence.
+        # Either it doesn't exist or it belongs to a different business ; same 404 either way so we don't leak cross tenant existence.
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     if conversation.channel != "sms":
@@ -113,8 +109,7 @@ async def send_owner_reply(
     if not business:
         raise HTTPException(status_code=404, detail="Business not found.")
 
-    # Send via Twilio first — if this throws, we don't want a phantom outbound
-    # row sitting in the DB making it look like the customer was contacted.
+    # Send via Twilio first ; if this throws, we don't want a phantom outbound row sitting in the DB making it look like the customer was contacted.
     try:
         await asyncio.to_thread(
             twilio_client.messages.create,
@@ -129,7 +124,7 @@ async def send_owner_reply(
     await db.commit()
     await db.refresh(message)
 
-    # Live-update any open dashboard tabs for this business.
+    # Live update any open dashboard tabs for this business.
     publish(business_id, "conversation.updated", {"conversation_id": conversation.id})
 
     return message

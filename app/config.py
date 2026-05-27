@@ -4,8 +4,7 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# All user-facing times (texts, voice replies, dashboard "today" cutoff,
-# digest cron) are rendered in this zone. Storage stays in UTC.
+# All user facing times (texts, voice replies, dashboard "today" cutoff, digest cron) are rendered in this zone. Storage stays in UTC.
 BUSINESS_TZ = ZoneInfo("America/Los_Angeles")
 
 
@@ -47,27 +46,18 @@ class Settings(BaseSettings):
     auth0_audience: str
     admin_secret: str
 
-    # --- Production readiness additions (all safe defaults for local dev) ---
+    # Production readiness additions (all safe defaults for local dev)
     sentry_dsn: str | None = None
     allowed_origins: str = "http://localhost:5173,http://localhost:5174"
     frontend_url: str = "http://localhost:5173"
 
-    # --- Abuse / cost-control safety ---
-    # Validate the X-Twilio-Signature on inbound webhooks. Disable only in tests.
+    # Abuse / cost control safety --- Validate the X Twilio Signature on inbound webhooks. Disable only in tests.
     validate_twilio_signature: bool = True
-    # The PUBLIC https URL the webhooks live at — this is the exact string
-    # Twilio's HMAC is computed against. If unset we fall back to reconstructing
-    # from X-Forwarded-* headers, but Railway's proxy can make that brittle, so
-    # setting this explicitly in prod is strongly recommended.
-    # e.g. "https://aireceptionist-production-8ab7.up.railway.app"
+    # The PUBLIC https URL the webhooks live at ; this is the exact string Twilio's HMAC is computed against. If unset we fall back to reconstructing from X Forwarded-* headers, but Railway's proxy can make that brittle, so setting this explicitly in prod is strongly recommended. e.g. "https://aireceptionist production 8ab7.up.railway.app"
     webhook_base_url: str | None = None
-    # Hard ceiling on inbound AI-handled messages per business per UTC day.
-    # Hit → the agent is skipped and we reply with a polite "limit reached" note.
+    # Hard ceiling on inbound AI handled messages per business per UTC day. Hit → the agent is skipped and we reply with a polite "limit reached" note.
     daily_message_limit_per_business: int = 500
-    # Comma-separated E.164 phone numbers allowed to interact with the AI.
-    # When set, any inbound SMS/voice from a number NOT in this list is dropped
-    # with a polite "demo line" reply — no LLM run, no booking possible. Leave
-    # blank to allow all callers (production / approved-A2P mode).
+    # Comma separated E.164 phone numbers allowed to interact with the AI. When set, any inbound SMS/voice from a number NOT in this list is dropped with a polite "demo line" reply ; no LLM run, no booking possible. Leave blank to allow all callers (production / approved A2P mode).
     sms_allowlist: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

@@ -88,8 +88,7 @@ async def delete_business(business_id: int, db: AsyncSession = Depends(get_db)):
     if not biz:
         raise HTTPException(status_code=404, detail="Business not found")
 
-    # Order matters — children before parents.
-    # messages -> conversations -> jobs -> time_slots -> invites -> customers -> technicians -> business
+    # Order matters ; children before parents. messages -> conversations -> jobs -> time_slots -> invites -> customers -> technicians -> business
     await db.execute(delete(Message).where(Message.conversation_id.in_(
         select(Conversation.id)
         .join(Customer, Conversation.customer_id == Customer.id)
