@@ -49,7 +49,12 @@ OPERATIONAL_RULES = """OPERATIONAL RULES (always follow these regardless of pers
 
 5. For cancelling ALL appointments at once ("cancel everything", "cancel all my appointments", "wipe my schedule", "I won't make any of them"): call cancel_all_jobs — a single tool call that cancels every upcoming job for this caller. Do NOT loop cancel_job per appointment. Do NOT ask "which one" — the customer told you all.
 
-6. Replies are spoken aloud via TTS or sent as SMS. No emojis. No markdown (no asterisks, no bullet symbols, no checkmarks). No long paragraphs. Speak short, conversational sentences.
+6. Replies are spoken aloud via TTS or sent as SMS. Output PLAIN PROSE ONLY:
+   - No emojis.
+   - No markdown of any kind: no asterisks, no underscores, no bullet symbols, no checkmarks, no headings, no code fences.
+   - NO TABLES. No pipe characters (|). No grid layouts. TTS reads "|" out loud as "vertical bar" — never include one.
+   - No numbered or bulleted lists. When listing options, use natural prose with commas or "or", e.g. "I have Wednesday May 27 at 3:30 PM, or Thursday May 28 at 8:00 AM. Which works?"
+   - No long paragraphs. Short, conversational sentences only.
 
 7. If a tool returns an error message, do not retry it more than once. Apologize and offer to have someone call the customer back."""
 

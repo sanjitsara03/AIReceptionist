@@ -152,6 +152,32 @@ def strip_emojis(text: str) -> str:
     return text.encode("ascii", "ignore").decode("ascii")
 
 
+def sanitize_for_speech(text: str) -> str:
+    """Strip markdown/table artifacts that TTS reads literally.
+
+    Polly reads "|" as "vertical bar", "**" as "asterisk asterisk", etc.
+    Even with strong prompt rules, models slip occasionally — sanitize
+    defensively before handing text to <Say> or <Message>.
+    """
+    import re
+    out = strip_emojis(text)
+    # Drop pure separator rows like "|---|---|---|"
+    out = re.sub(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$", "", out, flags=re.MULTILINE)
+    # Drop pipe characters and surrounding spaces
+    out = out.replace("|", " ")
+    # Strip markdown emphasis markers
+    out = re.sub(r"(\*\*|__|`)", "", out)
+    # Strip lone "#" tokens (markdown headings or table column markers).
+    # Doesn't touch "#123" style since there's no boundary after the digit.
+    out = re.sub(r"(?<!\S)#+(?!\S)", "", out)
+    # Strip leading bullets/numbers on lines
+    out = re.sub(r"^[\s>#]*[-*•]\s+", "", out, flags=re.MULTILINE)
+    out = re.sub(r"^\s*\d+[.)]\s+", "", out, flags=re.MULTILINE)
+    # Collapse whitespace
+    out = re.sub(r"\s+", " ", out).strip()
+    return out
+
+
 # ---------------------------------------------------------------------------
 # SMS webhook
 # ---------------------------------------------------------------------------
@@ -220,7 +246,7 @@ async def inbound_sms(request: Request, db: AsyncSession = Depends(get_db)):
     publish(business_id, "conversation.updated", {"conversation_id": conversation_id})
 
     response = MessagingResponse()
-    response.message(reply)
+    response.message(sanitize_for_speech(reply))
 
     return Response(content=str(response), media_type="application/xml")
 
@@ -354,7 +380,7 @@ async def voice_respond(request: Request, db: AsyncSession = Depends(get_db)):
         speech_timeout="auto",
         language="en-US",
     )
-    gather.say(strip_emojis(reply), voice="Polly.Joanna")
+    gather.say(sanitize_for_speech(reply), voice="Polly.Joanna")
     response.append(gather)
 
     # If customer doesn't say anything, hang up politely
