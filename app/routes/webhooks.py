@@ -176,12 +176,7 @@ def sanitize_for_speech(text: str) -> str:
     # Strip any leftover [internal:...] tags the model may echo despite the prompt.
     out = re.sub(r"\[internal:[^\]]*\]", "", out)
 
-    # Run on list breakup. When the model emits 3+ comma separated short noun
-    # phrases (e.g. service or appointment lists), swap inner commas for
-    # periods so TTS pauses between items. Two equivalent shapes match:
-    #   "X, Y, Z"           (>= 2 comma items)
-    #   "X, Y, and/or Z"    (1 comma item + trailing connector)
-    # Items are up to 3 words and may not start with "and"/"or" (those are connectors).
+    # Run on list breakup. 
     item = r"(?!and\b|or\b)[A-Za-z][A-Za-z]+(?:\s+[A-Za-z]+){0,2}"
     connector = rf"\s*,?\s*(?:and|or)\s+{item}"
     list_re = re.compile(
@@ -191,7 +186,6 @@ def sanitize_for_speech(text: str) -> str:
     def _break_list(m: re.Match) -> str:
         text = m.group(0)
         # Replace " and X" / " or X" / ", and X" / ", or X" connectors with ", "
-        # so all items are now comma separated.
         text = re.sub(r"\s*,?\s*(?:and|or)\s+", ", ", text, flags=re.IGNORECASE)
         parts = [p.strip() for p in text.split(",") if p.strip()]
         # Capitalize each part EXCEPT the first so the surrounding sentence start is preserved.
@@ -398,6 +392,7 @@ async def inbound_call(request: Request, db: AsyncSession = Depends(get_db)):
 
     # Greeting
     greeting = VOICE_GREETING
+    business = None
     if to_number:
         result = await db.execute(select(Business).where(Business.twilio_number == to_number))
         business = result.scalar_one_or_none()
@@ -409,6 +404,17 @@ async def inbound_call(request: Request, db: AsyncSession = Depends(get_db)):
                     f"Hi! You've reached the AI receptionist for {business.name}. "
                     "How can I help you today?"
                 )
+
+    # Save the greeting as an outbound message 
+    if business and from_number:
+        try:
+            customer = await get_or_create_customer(db, business.id, from_number)
+            conv = await get_or_create_conversation(db, customer, channel="voice")
+            await save_message(db, conv.id, MessageDirection.outbound, greeting)
+            await db.commit()
+        except Exception:
+            log.exception("inbound_call: failed to seed greeting for %s -> %s", from_number, to_number)
+            await db.rollback()
 
     response = VoiceResponse()
     gather = Gather(
