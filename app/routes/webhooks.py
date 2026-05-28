@@ -17,6 +17,7 @@ from app.models import Business, Customer, Message, Conversation, MessageDirecti
 from app.agent.agent import get_ai_reply
 from app.agent.tools import AgentDeps
 from app.services.conversation import (
+    get_business_customer_conversation,
     get_or_create_customer,
     get_or_create_conversation,
     load_history,
@@ -320,16 +321,13 @@ async def inbound_sms(request: Request, db: AsyncSession = Depends(get_db)):
     if not from_number or not to_number or not body:
         return Response(content=str(MessagingResponse()), media_type="application/xml")
 
-    # Look up business by Twilio number
-    result = await db.execute(select(Business).where(Business.twilio_number == to_number))
-    business = result.scalar_one_or_none()
-
+    # Single JOIN: business + customer + most recent SMS conversation.
+    # Replaces 3 sequential round trips with 1; missing rows are created.
+    business, customer, conversation = await get_business_customer_conversation(
+        db, to_number, from_number, channel="sms"
+    )
     if not business:
         raise HTTPException(status_code=404, detail="Business not found for this number")
-
-    # Get or create customer and conversation (SMS only)
-    customer = await get_or_create_customer(db, business.id, from_number)
-    conversation = await get_or_create_conversation(db, customer, channel="sms")
 
     # Raw int IDs survive ORM expiration if agent.run rolls back the session.
     business_id = business.id
@@ -468,18 +466,15 @@ async def voice_respond(request: Request, db: AsyncSession = Depends(get_db)):
         response.hangup()
         return Response(content=str(response), media_type="application/xml")
 
-    # Look up business by Twilio number
-    result = await db.execute(select(Business).where(Business.twilio_number == to_number))
-    business = result.scalar_one_or_none()
-
+    # Single JOIN: business + customer + most recent voice conversation.
+    # Replaces 3 sequential round trips with 1; missing rows are created.
+    business, customer, conversation = await get_business_customer_conversation(
+        db, to_number, from_number, channel="voice"
+    )
     if not business:
         response.say("Sorry, we could not find your business. Goodbye.", voice="Polly.Joanna")
         response.hangup()
         return Response(content=str(response), media_type="application/xml")
-
-    # Get or create customer and conversation (voice only)
-    customer = await get_or_create_customer(db, business.id, from_number)
-    conversation = await get_or_create_conversation(db, customer, channel="voice")
 
     # Raw int IDs survive ORM expiration if agent.run rolls back the session.
     business_id = business.id

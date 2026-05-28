@@ -1,7 +1,7 @@
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.models import Customer, Conversation, Message, MessageDirection
+from app.models import Business, Customer, Conversation, Message, MessageDirection
 
 # A conversation older than this is treated as stale ; the next inbound starts a fresh thread. Keeps message rows bounded and gives the agent a clean history window.
 CONVERSATION_STALE_AFTER = timedelta(days=7)
@@ -56,8 +56,11 @@ async def get_or_create_conversation(
     return conversation
 
 
-# Max prior messages fed to the AI on each turn. ~15 turns of context is enough for the agent to stay coherent and keeps the per reply Claude bill bounded for customers who text us hundreds of times over months.
-MAX_HISTORY_MESSAGES = 30
+# Max prior messages fed to the AI on each turn. Voice calls rarely exceed
+# 5 to 6 customer turns; SMS clusters within a single appointment exchange
+# usually hit 4 to 8 messages. Capping at 10 keeps the per turn LLM input
+# small (lower TTFT, lower cost) without losing the agent's working memory.
+MAX_HISTORY_MESSAGES = 10
 
 
 async def load_history(db: AsyncSession, conversation: Conversation) -> list[dict]:
@@ -76,6 +79,61 @@ async def load_history(db: AsyncSession, conversation: Conversation) -> list[dic
         history.append({"role": role, "content": message.body})
 
     return history
+
+
+async def get_business_customer_conversation(
+    db: AsyncSession,
+    to_number: str,
+    from_number: str,
+    channel: str,
+) -> tuple[Business | None, Customer | None, Conversation | None]:
+    """Fetch business + customer + most recent conversation in ONE round-trip.
+
+    Replaces the 3 sequential queries (business lookup, customer lookup,
+    conversation lookup) with a single JOIN. If the customer or conversation
+    rows are missing they are created and flushed before returning.
+
+    Returns (business, customer, conversation). If no business matches the
+    to_number, returns (None, None, None) so the caller can 404.
+    """
+    stmt = (
+        select(Business, Customer, Conversation)
+        .select_from(Business)
+        .outerjoin(
+            Customer,
+            (Customer.business_id == Business.id) & (Customer.phone == from_number),
+        )
+        .outerjoin(
+            Conversation,
+            (Conversation.customer_id == Customer.id) & (Conversation.channel == channel),
+        )
+        .where(Business.twilio_number == to_number)
+        .order_by(Conversation.created_at.desc().nullslast())
+        .limit(1)
+    )
+    row = (await db.execute(stmt)).first()
+    if row is None:
+        return None, None, None
+
+    business, customer, conversation = row
+
+    if customer is None:
+        customer = Customer(business_id=business.id, name="Unknown", phone=from_number)
+        db.add(customer)
+        await db.flush()
+
+    stale = False
+    if conversation is not None:
+        last_active = conversation.updated_at or conversation.created_at
+        if last_active is not None and datetime.now(timezone.utc) - last_active > CONVERSATION_STALE_AFTER:
+            stale = True
+
+    if conversation is None or conversation.channel != channel or stale:
+        conversation = Conversation(customer_id=customer.id, channel=channel)
+        db.add(conversation)
+        await db.flush()
+
+    return business, customer, conversation
 
 
 async def save_message(db: AsyncSession, conversation_id: int, direction: MessageDirection, body: str) -> Message:
