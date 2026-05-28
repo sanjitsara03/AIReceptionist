@@ -10,6 +10,7 @@ import { CustomersView } from './views/CustomersView.jsx';
 import { SettingsView } from './views/SettingsView.jsx';
 import { AdminApp } from './admin/AdminApp.jsx';
 import { SmsTerms } from './components/SmsTerms.jsx';
+import { SmsBanner } from './components/Banner.jsx';
 
 const AUTH0_DOMAIN   = import.meta.env.VITE_AUTH0_DOMAIN;
 const AUTH0_CLIENT   = import.meta.env.VITE_AUTH0_CLIENT_ID;
@@ -162,13 +163,15 @@ function AppShell() {
   };
 
   return (
-    <div className="app">
-      <Sidebar
-        active={view}
-        onSelect={(v) => { setView(v); setDrawerJobId(null); }}
-        business={data.business}
-        counts={counts}
-      />
+    <>
+      <SmsBanner />
+      <div className="app">
+        <Sidebar
+          active={view}
+          onSelect={(v) => { setView(v); setDrawerJobId(null); }}
+          business={data.business}
+          counts={counts}
+        />
 
       <div className="main">
         <TopBar
@@ -207,9 +210,10 @@ function AppShell() {
         </div>
       </div>
 
-      {drawerJobId && view === "jobs" && (
-        <JobDrawer jobId={drawerJobId} onClose={() => setDrawerJobId(null)} />
-      )}
-    </div>
+        {drawerJobId && view === "jobs" && (
+          <JobDrawer jobId={drawerJobId} onClose={() => setDrawerJobId(null)} />
+        )}
+      </div>
+    </>
   );
 }
