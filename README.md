@@ -16,13 +16,6 @@ A multi-tenant AI receptionist for home-service businesses (plumbing, HVAC, elec
 
 > SMS replies are currently paused while Twilio toll-free verification is in progress. Voice calls are fully operational. The dashboard is a live deployment, not a screenshot.
 
-<img width="1920" height="987" alt="AIR - Dashboard" src="https://github.com/user-attachments/assets/55daefce-a151-4a76-b65c-a65e63350fea" />
-<img width="1920" height="986" alt="AIR - customer" src="https://github.com/user-attachments/assets/06d4e670-78e6-492e-9ac1-f22b2bf2f0d1" />
-<img width="1920" height="986" alt="AIR - conversations" src="https://github.com/user-attachments/assets/8432a736-7e52-48df-bf79-d4d595fc9697" />
-<img width="1920" height="986" alt="AIR - jobs" src="https://github.com/user-attachments/assets/ff0c05e7-1f6b-48b6-8fcf-4b6b8edb412f" />
-<img width="1920" height="988" alt="AIR - settings" src="https://github.com/user-attachments/assets/93502b75-28a2-42fc-8ae7-049ab1732e06" />
-
-
 ---
 
 ## What it does
