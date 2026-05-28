@@ -2,6 +2,20 @@
 
 A multi-tenant AI receptionist for home-service businesses (plumbing, HVAC, electrical). Customers text or call a Twilio number; an LLM agent handles the conversation, books real appointments in the database, and updates the owner's dashboard in real time. One deployment serves many businesses, each with their own number, services, pricing, and personality prompt.
 
+## Try the demo
+
+**Live dashboard:** https://romantic-magic-production-0f01.up.railway.app
+
+**Sign in as Joe's Plumbing (owner view):**
+
+| Email | Password |
+|---|---|
+| `joe@joesplumbing.com` | `gopdan-tobgig-8Depse` |
+
+**Talk to the AI receptionist:** call **(844) 593-1325** from any US phone. The agent will pick up, take your booking by voice, and you'll see the new appointment appear live on the dashboard above via Server-Sent Events.
+
+> SMS replies are currently paused while Twilio toll-free verification is in progress. Voice calls are fully operational. The dashboard is a live deployment, not a screenshot.
+
 <img width="1920" height="987" alt="AIR - Dashboard" src="https://github.com/user-attachments/assets/55daefce-a151-4a76-b65c-a65e63350fea" />
 <img width="1920" height="986" alt="AIR - customer" src="https://github.com/user-attachments/assets/06d4e670-78e6-492e-9ac1-f22b2bf2f0d1" />
 <img width="1920" height="986" alt="AIR - conversations" src="https://github.com/user-attachments/assets/8432a736-7e52-48df-bf79-d4d595fc9697" />
