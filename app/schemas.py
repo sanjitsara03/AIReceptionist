@@ -1,7 +1,24 @@
 from datetime import datetime
 from typing import Any
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
+from app.config import settings
 from app.models import JobStatus, MessageDirection
+
+
+def _mask_phone(value: str | None) -> str | None:
+    """Replace all but the last 4 digits with X when MASK_CUSTOMER_PHONES is on.
+
+    "+15558881234"   -> "+1 (XXX) XXX-1234"
+    "+15558881234"   stays unchanged when the flag is off.
+    Non standard inputs (e.g. very short strings) are returned as is.
+    """
+    if not value or not settings.mask_customer_phones:
+        return value
+    digits = "".join(ch for ch in value if ch.isdigit())
+    if len(digits) < 4:
+        return value
+    last4 = digits[-4:]
+    return f"+1 (XXX) XXX-{last4}"
 
 
 class BusinessResponse(BaseModel):
@@ -87,6 +104,11 @@ class CustomerResponse(BaseModel):
     job_count: int = 0
 
     model_config = {"from_attributes": True}
+
+    @field_validator("phone", mode="after")
+    @classmethod
+    def _mask_phone_field(cls, v: str) -> str:
+        return _mask_phone(v) or v
 
     @model_validator(mode="before")
     @classmethod

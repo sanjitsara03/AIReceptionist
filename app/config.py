@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     daily_message_limit_per_business: int = 500
     # Comma separated E.164 phone numbers allowed to interact with the AI. When set, any inbound SMS/voice from a number NOT in this list is dropped with a polite "demo line" reply ; no LLM run, no booking possible. Leave blank to allow all callers (production / approved A2P mode).
     sms_allowlist: str = ""
+    # Mask customer phone numbers in API responses so they aren't exposed via the shared demo dashboard. DB keeps the real number so the agent can still text/call back. Set true in any deployment where the dashboard credentials are publicly shared.
+    mask_customer_phones: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
