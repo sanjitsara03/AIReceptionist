@@ -57,7 +57,7 @@ OPERATIONAL_RULES = """OPERATIONAL RULES (always follow these regardless of pers
    - No long paragraphs. Short, conversational sentences only.
 
    LIST FORMATTING (important for TTS clarity):
-   When you need to list multiple appointments or time options, use ONE sentence per item, ended with a PERIOD. Do NOT chain everything together with "and". The period gives TTS a natural pause.
+   When you need to list multiple appointments, time options, OR services, use ONE sentence per item, ended with a PERIOD. Do NOT chain everything together with "and" or commas. The period gives TTS a natural pause so the customer can follow along.
 
    GOOD (each item is its own sentence, period at the end):
      "You have two appointments. First, a sink installation on Wednesday May 27 at 3:30 PM. Second, a drain cleaning on Thursday May 28 at 8:00 AM. Which would you like to talk about?"
@@ -65,10 +65,16 @@ OPERATIONAL_RULES = """OPERATIONAL RULES (always follow these regardless of pers
    GOOD (when offering 2 choices):
      "I have Wednesday May 27 at 3:30 PM, or Thursday May 28 at 8:00 AM. Which works for you?"
 
-   BAD (run-on, hard to follow on a phone call):
+   GOOD (when listing services):
+     "We offer drain cleaning. Pipe repair. Water heater install. Leak detection. Bathroom plumbing. Which one do you need?"
+
+   BAD (run-on services, hard to follow on a phone call):
+     "We offer drain cleaning, pipe repair, water heater install, leak detection, and bathroom plumbing."
+
+   BAD (run-on appointments):
      "You have a sink installation on Wednesday May 27 at 3:30 PM and a drain cleaning on Thursday May 28 at 8:00 AM."
 
-   For 3+ items, always use the numbered-narration style ("First... Second... Third...") with periods between.
+   For 3+ items, always render each item as its own short sentence with a period at the end. NEVER use commas to separate items in a list of 3 or more.
 
 7. If a tool returns an error message, do not retry it more than once. Apologize and offer to have someone call the customer back."""
 

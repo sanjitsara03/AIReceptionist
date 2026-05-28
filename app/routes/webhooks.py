@@ -175,6 +175,31 @@ def sanitize_for_speech(text: str) -> str:
 
     # Strip any leftover [internal:...] tags the model may echo despite the prompt.
     out = re.sub(r"\[internal:[^\]]*\]", "", out)
+
+    # Run on list breakup. When the model emits 3+ comma separated short noun
+    # phrases (e.g. service or appointment lists), swap inner commas for
+    # periods so TTS pauses between items. Two equivalent shapes match:
+    #   "X, Y, Z"           (>= 2 comma items)
+    #   "X, Y, and/or Z"    (1 comma item + trailing connector)
+    # Items are up to 3 words and may not start with "and"/"or" (those are connectors).
+    item = r"(?!and\b|or\b)[A-Za-z][A-Za-z]+(?:\s+[A-Za-z]+){0,2}"
+    connector = rf"\s*,?\s*(?:and|or)\s+{item}"
+    list_re = re.compile(
+        rf"\b({item})(?:(?:,\s*{item}){{2,}}(?:{connector})?|(?:,\s*{item}){{1,}}{connector})",
+        re.IGNORECASE,
+    )
+    def _break_list(m: re.Match) -> str:
+        text = m.group(0)
+        # Replace " and X" / " or X" / ", and X" / ", or X" connectors with ", "
+        # so all items are now comma separated.
+        text = re.sub(r"\s*,?\s*(?:and|or)\s+", ", ", text, flags=re.IGNORECASE)
+        parts = [p.strip() for p in text.split(",") if p.strip()]
+        # Capitalize each part EXCEPT the first so the surrounding sentence start is preserved.
+        out_parts = [parts[0]] + [p[0].upper() + p[1:] if p else p for p in parts[1:]]
+        # No trailing period; the surrounding text already has its own punctuation.
+        return ". ".join(out_parts)
+    out = list_re.sub(_break_list, out)
+
     out = re.sub(r"\s+", " ", out).strip()
     return out
 
@@ -186,22 +211,80 @@ def sanitize_for_speech(text: str) -> str:
 _pending_replies: dict[int, asyncio.Task] = {}
 
 
-def _acknowledgement_for(speech: str) -> str:
-    """Pick a short intent matching acknowledgement to play while the agent runs.
+import random
 
-    Checks are ordered specific to general so that a reschedule intent does
-    not get caught by the broader 'schedule' availability matcher.
-    """
-    s = (speech or "").lower()
+
+# Acknowledgement phrases, grouped by intent. Each call picks one at random so
+# repeat turns within a call don't all sound the same. Checks are ordered
+# specific to general so reschedule doesn't get caught by the broader
+# 'schedule' availability matcher.
+_ACKS = {
+    "reschedule": [
+        "Let me see what's available.",
+        "Sure, let me find another slot.",
+        "Got it, checking what we can move you to.",
+    ],
+    "cancel": [
+        "Let me look that up.",
+        "Sure, let me pull up your appointment.",
+        "Okay, one second.",
+    ],
+    "list": [
+        "Let me pull that up for you.",
+        "Sure, looking up your appointments now.",
+        "One second, checking your file.",
+    ],
+    "availability": [
+        "Let me check our availability.",
+        "One second, checking the schedule.",
+        "Sure, let me see what we have open.",
+    ],
+    "closing": [
+        "Got it.",
+        "Alright.",
+        "Sounds good.",
+        "Okay.",
+    ],
+    "greeting": [
+        "Sure, how can I help?",
+        "Hi there!",
+        "Of course.",
+    ],
+    "default": [
+        "One moment please.",
+        "One second.",
+        "Sure, give me a moment.",
+        "Alright, hang on.",
+    ],
+}
+
+
+def _acknowledgement_for(speech: str) -> str:
+    """Pick a short intent matching acknowledgement to play while the agent runs."""
+    s = (speech or "").lower().strip()
+
+    # Conversation-ending intents: short replies like "no", "no thanks",
+    # "that's it", "goodbye", "I'm good". The agent's actual response will
+    # likely be a farewell, so the ack should feel like a casual acknowledgment.
+    if s in {"no", "nope", "no thanks", "no thank you"} or any(
+        p in s for p in ("that's it", "thats it", "that's all", "thats all",
+                          "goodbye", "good bye", "bye", "i'm good", "im good",
+                          "i'm done", "im done", "nothing else", "all set")):
+        return random.choice(_ACKS["closing"])
+
+    # Greeting only (no other content)
+    if s in {"hi", "hello", "hey", "yo"}:
+        return random.choice(_ACKS["greeting"])
+
     if any(w in s for w in ("reschedul", "move my", "change my")):
-        return "Let me see what's available."
+        return random.choice(_ACKS["reschedule"])
     if "cancel" in s:
-        return "Let me look that up."
+        return random.choice(_ACKS["cancel"])
     if any(w in s for w in ("what do i have", "my appointment", "my booking", "what's booked", "whats booked")):
-        return "Let me pull that up for you."
+        return random.choice(_ACKS["list"])
     if any(w in s for w in ("available", "when", " time", "book", "schedule", "appointment slot")):
-        return "Let me check our availability."
-    return "One moment please."
+        return random.choice(_ACKS["availability"])
+    return random.choice(_ACKS["default"])
 
 
 async def _run_agent_isolated(conversation_id: int, business_id: int, customer_id: int) -> str:
