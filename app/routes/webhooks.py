@@ -28,7 +28,11 @@ log = logging.getLogger("webhooks.voice")
 
 router = APIRouter()
 
-VOICE_GREETING = "Hi! You've reached our AI receptionist. How can I help you today?"
+VOICE_GREETING = (
+    "Hi! You've reached our AI receptionist. "
+    "How can we help you today? "
+    "Or, would you like to hear about our services?"
+)
 LIMIT_REACHED_REPLY = (
     "Sorry, this number has reached its daily message limit. "
     "Please try again tomorrow or call directly."
@@ -400,7 +404,8 @@ async def inbound_call(request: Request, db: AsyncSession = Depends(get_db)):
             else:
                 greeting = (
                     f"Hi! You've reached the AI receptionist for {business.name}. "
-                    "How can I help you today?"
+                    "How can we help you today? "
+                    "Or, would you like to hear about our services?"
                 )
 
     # Save the greeting as an outbound message 
