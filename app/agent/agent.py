@@ -1,6 +1,6 @@
 import logging
 import os
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent, ModelSettings, RunContext
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -10,7 +10,6 @@ from pydantic_ai.messages import (
     ToolCallPart,
     ToolReturnPart,
 )
-from pydantic_ai.models.anthropic import AnthropicModelSettings
 from pydantic_ai.usage import UsageLimits
 
 from app.config import settings
@@ -22,12 +21,17 @@ from app.agent.tools import (
     cancel_job,
     cancel_all_jobs,
     list_my_appointments,
+    set_customer_name,
+    set_customer_address,
 )
 
 # Cap LLM round trips and tokens per .run() so a runaway loop can't burn spend.
-AGENT_USAGE_LIMITS = UsageLimits(request_limit=8, total_tokens_limit=15000)
+# The ~2.2k-token system prompt is re-counted on every request (no cache
+# discount on input_tokens like Anthropic had), so the token cap must cover
+# request_limit full prompts.
+AGENT_USAGE_LIMITS = UsageLimits(request_limit=8, total_tokens_limit=60000)
 
-os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
+os.environ["OPENROUTER_API_KEY"] = settings.openrouter_api_key
 
 # Always appended after either BASE_SYSTEM_PROMPT or the owner's custom prompt ; these are operational rules (multi tenant safety, tool usage, voice/SMS hygiene) that owners shouldn't be able to override by editing their personality prompt in Settings.
 OPERATIONAL_RULES = """OPERATIONAL RULES (always follow these regardless of personality):
@@ -80,7 +84,15 @@ OPERATIONAL_RULES = """OPERATIONAL RULES (always follow these regardless of pers
 
 8. FIRST REPLY ON A BRAND NEW CONVERSATION. If the conversation history is empty (this is the customer's very first message) AND that message is generic/short (e.g. "hi", "hello", "hey", "yo", or a wave emoji), respond with a brief one sentence greeting, then ask "How can we help you today?", then offer "Would you like to hear about our services?" Keep it to two or three short sentences total. If the customer's first message is a SPECIFIC request (e.g. "I need a sink fixed", "what times are available?", "cancel my appointment"), skip the services offer and handle the request directly.
 
-9. NEVER RE GREET. After the initial greeting (the first message in the conversation history, whether from you or from a TTS pre roll), do NOT start subsequent replies with "Hi", "Hello", "Hey", or any greeting word. The customer has already been greeted. Just answer their question. Acceptable openers for follow up turns: "Sure!", "Of course.", "We offer...", "Let me check.", or simply diving into the answer."""
+9. NEVER RE GREET. After the initial greeting (the first message in the conversation history, whether from you or from a TTS pre roll), do NOT start subsequent replies with "Hi", "Hello", "Hey", or any greeting word. The customer has already been greeted. Just answer their question. Acceptable openers for follow up turns: "Sure!", "Of course.", "We offer...", "Let me check.", or simply diving into the answer.
+
+10. PRICE DISCLOSURE. Before you confirm a booking, mention the approximate price in plain language. Use the estimate returned by book_job's response. Always say "about $X" or "around $X" (never an exact figure) because pricing varies with parts and severity. Example: "That'll run about $180 plus parts if needed. Should I lock it in?". If no estimate is available, skip this sentence rather than guessing.
+
+11. RETURNING CUSTOMER. The system prompt's CUSTOMER ON THIS CALL block tells you the caller's name (if known) and whether they have an address on file. If the name is known (not "Unknown"), address the customer by their first name in your first reply of the turn. Do this naturally; do not announce "Welcome back" on every single message, only on the first turn of a fresh call/conversation.
+
+12. CAPTURE NAME AND ADDRESS FROM SMS. If the channel is "sms" and the customer sends a message that looks like a name + address (e.g. "Sarah Lee, 123 Main St San Francisco" or "this is John, 456 Oak Ave"), call set_customer_name and set_customer_address with the extracted values, then reply with a brief acknowledgement (e.g. "Thanks Sarah, you're all set!"). Skip name capture if "Name on file" is already a real name; skip address capture if "Address on file" is already populated. Do NOT call the tools with empty strings.
+
+13. CAPTURE NAME ON VOICE WHEN OFFERED. If a voice caller introduces themselves ("This is Sarah", "I'm John"), call set_customer_name with their name. Do not ask them to repeat or spell it unless the speech transcript is obviously garbled. NEVER ask a voice caller for their address. Address capture happens via the post booking SMS, not on the call."""
 
 BASE_SYSTEM_PROMPT = """You are an AI receptionist for {business_name}. Your job is to help customers via SMS and voice calls.
 
@@ -116,14 +128,14 @@ Do not use emojis. Do not use markdown formatting like ** or *.
 Always be friendly and professional.
 If you are not sure about something, ask the customer to clarify."""
 
-# Anthropic prompt caching
 agent = Agent(
-    model="anthropic:claude-sonnet-4-6",
+    model=f"openrouter:{settings.agent_model}",
     deps_type=AgentDeps,
-    model_settings=AnthropicModelSettings(
-        anthropic_cache_instructions=True,
-        anthropic_cache_tool_definitions=True,
-    ),
+    # Replies are a few spoken/texted sentences; cap output so a single
+    # degenerate completion can't run to the model's output ceiling. (The
+    # Anthropic SDK always sent max_tokens=4096 — OpenRouter sends no cap
+    # unless we set one, and UsageLimits only checks between requests.)
+    model_settings=ModelSettings(max_tokens=1024),
 )
 
 agent.tool(check_availability)
@@ -132,11 +144,14 @@ agent.tool(reschedule_job)
 agent.tool(cancel_job)
 agent.tool(cancel_all_jobs)
 agent.tool(list_my_appointments)
+agent.tool(set_customer_name)
+agent.tool(set_customer_address)
 
 
 @agent.system_prompt
 async def build_system_prompt(ctx: RunContext[AgentDeps]) -> str:
     b = ctx.deps.business
+    c = ctx.deps.customer
     # Owner can customize personality; operational rules always append underneath.
     if b.system_prompt and b.system_prompt.strip():
         base = b.system_prompt.strip()
@@ -147,7 +162,21 @@ async def build_system_prompt(ctx: RunContext[AgentDeps]) -> str:
             hours=b.hours or "Please call for hours",
             address=b.address or "Please call for location",
         )
-    return base + "\n\n" + OPERATIONAL_RULES
+
+    # Customer context block lets the agent personalize (greet by name when
+    # known, skip the address ask when already on file, etc).
+    name_on_file = (c.name or "").strip()
+    name_known = bool(name_on_file) and name_on_file.lower() != "unknown"
+    address_on_file = (c.address or "").strip()
+    customer_block = (
+        "\nCUSTOMER ON THIS CALL:\n"
+        f"- Phone: {c.phone}\n"
+        f"- Name on file: {name_on_file if name_known else 'Unknown (please capture if mentioned)'}\n"
+        f"- Address on file: {address_on_file if address_on_file else 'None (capture when booking)'}\n"
+        f"- Channel: {ctx.deps.channel}\n"
+    )
+
+    return base + customer_block + "\n\n" + OPERATIONAL_RULES
 
 
 def build_message_history(history: list[dict]) -> list[ModelMessage]:
@@ -211,6 +240,27 @@ def _log_tool_calls(result, business_id: int) -> None:
                     )
 
 
+def _final_response_lacks_text(result) -> bool:
+    """True when the run's last model response carried no actual reply text.
+
+    Gemini via OpenRouter occasionally ends a tool chain with an empty
+    completion. pydantic-ai then salvages text from an earlier message in the
+    run (e.g. the pre-tool "One moment.") and returns it as result.output —
+    which reads like a finished reply but never delivered the tool results.
+    """
+    try:
+        msgs = result.new_messages()
+    except Exception:
+        return False
+    for msg in reversed(msgs):
+        if isinstance(msg, ModelResponse):
+            return not any(
+                isinstance(p, TextPart) and (p.content or "").strip()
+                for p in msg.parts
+            )
+    return False
+
+
 async def get_ai_reply(conversation_history: list[dict], deps: AgentDeps) -> str:
     if not conversation_history:
         return "Hi! How can I help you today?"
@@ -226,6 +276,19 @@ async def get_ai_reply(conversation_history: list[dict], deps: AgentDeps) -> str
             usage_limits=AGENT_USAGE_LIMITS,
         )
         _log_tool_calls(result, deps.business_id)
+        if _final_response_lacks_text(result):
+            # Nudge the model to actually answer. Continuing from
+            # all_messages() keeps the executed tool calls in history, so
+            # nothing (booking, cancellation) runs twice. The nudge text is
+            # model-side only — it is never persisted to the conversation.
+            result = await agent.run(
+                "Your last reply was empty. Send the customer your final "
+                "answer now, in plain prose, based on the tool results above.",
+                message_history=result.all_messages(),
+                deps=deps,
+                usage_limits=AGENT_USAGE_LIMITS,
+            )
+            _log_tool_calls(result, deps.business_id)
         return result.output
     except Exception as e:
         # Roll back the poisoned session ; a tool's failed flush leaves it in PendingRollbackError state, which would crash the caller's save_message.

@@ -162,7 +162,7 @@ function AIForm({ business, getToken, reload }) {
                placeholder="Hi! You've reached Joe's Plumbing. How can I help you today?" />
       </Field>
 
-      <Field label="System prompt" hint="Advanced — edit the instructions sent to Claude on every turn.">
+      <Field label="System prompt" hint="Advanced — edit the instructions sent to the AI on every turn.">
         <textarea
           style={{ minHeight: 220 }}
           value={form.system_prompt}

@@ -12,7 +12,7 @@ Covers what a real customer can do:
   8. Allowlist + abuse paths
   9. Output sanitization (TTS + dashboard)
 
-The agent's LLM call itself is NOT tested (would require live Claude API).
+The agent's LLM call itself is NOT tested (would require a live LLM API).
 Each agent tool is exercised directly with a fake RunContext, which is the
 same surface the LLM hits during a real conversation.
 """
@@ -544,3 +544,47 @@ def test_sanitize_full_pipeline_on_real_failing_output():
     assert "Wednesday May 27 3:30 PM." in out
     assert "Thursday May 28 8:00 AM." in out
     assert "Would any of these work for you?" in out
+
+
+# OpenRouter migration regression: empty final completion after a tool chain
+
+async def test_get_ai_reply_recovers_from_empty_final_completion(db, business):
+    """Gemini via OpenRouter can end a tool chain with an empty completion;
+    pydantic-ai then salvages the pre-tool preamble ("One moment.") as the
+    output. get_ai_reply must detect that and nudge the model once for the
+    real answer — without re-executing the tools already run."""
+    from pydantic_ai.models.function import FunctionModel
+    from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
+
+    from app.agent.agent import agent, get_ai_reply
+
+    customer = (await db.execute(
+        select(Customer).where(Customer.business_id == business.id)
+    )).scalars().first()
+    deps = AgentDeps(
+        db=db, business_id=business.id, business=business,
+        customer=customer, channel="sms",
+    )
+
+    calls = {"n": 0}
+
+    def scripted(messages, info):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return ModelResponse(parts=[
+                TextPart("One moment."),
+                ToolCallPart(tool_name="list_my_appointments", args={}),
+            ])
+        if calls["n"] == 2:
+            # The failure mode: tool chain ends with an EMPTY completion.
+            return ModelResponse(parts=[])
+        return ModelResponse(parts=[TextPart("You have no upcoming appointments.")])
+
+    with agent.override(model=FunctionModel(scripted)):
+        reply = await get_ai_reply(
+            [{"role": "user", "content": "What appointments do I have?"}], deps
+        )
+
+    # Without the guard this returns the stale "One moment." preamble.
+    assert reply == "You have no upcoming appointments."
+    assert calls["n"] == 3

@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from datetime import datetime, timezone
 from pydantic import BaseModel
 from pydantic_ai import RunContext
@@ -7,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import fmt_pt
 from app.models import TimeSlot, Job, JobStatus, Customer, Business, Technician
 from app.events import publish
+
+log = logging.getLogger("agent.tools")
 
 
 # Rough price estimates by job type ; used so dashboard revenue isn't always 0.
@@ -42,6 +46,10 @@ class AgentDeps(BaseModel):
     business_id: int
     business: Business
     customer: Customer
+    # Channel of the current turn: "voice" or "sms". Used by book_job to
+    # decide whether to follow up with a confirmation+info SMS (voice only)
+    # vs asking inline (sms; the customer is already texting us).
+    channel: str = "voice"
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -140,6 +148,7 @@ async def book_job(ctx: RunContext[AgentDeps], slot_id: int, job_type: str) -> s
     if not slot:
         return "That time slot is no longer available. Please choose another."
 
+    estimate = _estimate_for(job_type)
     job = Job(
         business_id=ctx.deps.business_id,
         customer_id=ctx.deps.customer.id,
@@ -148,7 +157,7 @@ async def book_job(ctx: RunContext[AgentDeps], slot_id: int, job_type: str) -> s
         job_type=job_type,
         status=JobStatus.confirmed,
         source="ai",
-        estimate=_estimate_for(job_type),
+        estimate=estimate,
     )
     db.add(job)
     slot.is_available = False
@@ -156,10 +165,117 @@ async def book_job(ctx: RunContext[AgentDeps], slot_id: int, job_type: str) -> s
 
     publish(ctx.deps.business_id, "job.created", {"job_id": job.id})
 
+    # After a voice booking, send a follow up SMS that doubles as a written
+    # confirmation AND a request for name + address. The customer types both
+    # back in one reply ; the agent picks up on the next turn and calls
+    # set_customer_name + set_customer_address to persist them.
+    # Skipped when the booking came via SMS ; the agent will ask inline.
+    if ctx.deps.channel == "voice":
+        await _send_booking_confirmation_sms(
+            business=ctx.deps.business,
+            customer=ctx.deps.customer,
+            job_type=job_type,
+            slot=slot,
+            estimate=estimate,
+        )
+
+    price_phrase = f" Estimated cost is around ${estimate}." if estimate else ""
     return (
         f"Booked! Your {job_type} appointment is confirmed for "
-        f"{fmt_pt(slot.start_time, '%A %b %d at %I:%M %p')}. Reply STOP to opt out."
+        f"{fmt_pt(slot.start_time, '%A %b %d at %I:%M %p')}.{price_phrase} "
+        "Tell the customer the date/time and the approximate price in plain "
+        "language. Do NOT mention 'STOP to opt out' on voice calls."
     )
+
+
+async def _send_booking_confirmation_sms(
+    business: Business,
+    customer: Customer,
+    job_type: str,
+    slot: TimeSlot,
+    estimate: int | None,
+) -> None:
+    """Send a confirmation + info request SMS after a voice booking.
+
+    Skips silently if the Twilio client cannot be loaded or the send fails;
+    the booking itself is already committed and the failure should not poison
+    the agent's response. Errors land in Sentry via the global handler.
+    """
+    try:
+        from app.scheduler import twilio_client
+    except Exception:
+        log.exception("book_job: Twilio client unavailable")
+        return
+
+    when = fmt_pt(slot.start_time, "%a %b %d at %I:%M %p")
+    price = f" Estimated cost: about ${estimate}." if estimate else ""
+    needs_name = (customer.name or "").strip().lower() in {"", "unknown"}
+    needs_addr = not (customer.address or "").strip()
+
+    if needs_name and needs_addr:
+        ask = " Please reply with your name and address so our tech can find you. Example: 'Sarah Lee, 123 Main St San Francisco'."
+    elif needs_name:
+        ask = " Please reply with your name."
+    elif needs_addr:
+        ask = " Please reply with your service address."
+    else:
+        ask = ""
+
+    body = (
+        f"{business.name}: {job_type.capitalize()} confirmed for {when}.{price}{ask} "
+        "Reply STOP to opt out."
+    )
+
+    try:
+        await asyncio.to_thread(
+            twilio_client.messages.create,
+            body=body,
+            from_=business.twilio_number,
+            to=customer.phone,
+        )
+    except Exception:
+        log.exception("book_job: failed to send confirmation SMS to %s", customer.phone)
+
+
+async def set_customer_name(ctx: RunContext[AgentDeps], name: str) -> str:
+    """Save the customer's name to the database.
+
+    Call this when the customer introduces themselves (e.g. 'This is Sarah'
+    or replies with their name after a booking SMS). Only updates the row if
+    the current name is missing or 'Unknown' so a deliberate prior name
+    is not overwritten by a misheard guess.
+    """
+    db = ctx.deps.db
+    customer = ctx.deps.customer
+    name = (name or "").strip()
+    if not name:
+        return "no_op: empty name"
+
+    current = (customer.name or "").strip().lower()
+    if current in {"", "unknown"}:
+        customer.name = name
+        await db.flush()
+        publish(ctx.deps.business_id, "conversation.updated", {"customer_id": customer.id})
+        return f"Customer name set to {name}."
+    return f"Customer name already on file as {customer.name}; not overwritten."
+
+
+async def set_customer_address(ctx: RunContext[AgentDeps], address: str) -> str:
+    """Save the customer's service address to the database.
+
+    Call this whenever the customer provides their address (e.g. in the SMS
+    reply after a voice booking, or when they mention it in conversation).
+    """
+    db = ctx.deps.db
+    customer = ctx.deps.customer
+    address = (address or "").strip()
+    if not address:
+        return "no_op: empty address"
+
+    customer.address = address
+    await db.flush()
+    publish(ctx.deps.business_id, "conversation.updated", {"customer_id": customer.id})
+    return f"Customer address saved: {address}"
 
 
 async def reschedule_job(ctx: RunContext[AgentDeps], job_id: int, new_slot_id: int) -> str:

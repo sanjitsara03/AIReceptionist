@@ -47,7 +47,7 @@ A multi-tenant AI receptionist for home-service businesses (plumbing, HVAC, elec
    │  │  + SSE      │            │                Auth0 JWT           │
    │  └─────────────┘            ▼                  validation        │
    │                    ┌──────────────────┐                          │
-   │                    │  Claude API      │                          │
+   │                    │  OpenRouter API  │                          │
    │                    └──────────────────┘                          │
    │  ┌──────────────────────────────────────────────────────────┐    │
    │  │  APScheduler — reminders, no-shows, daily digest         │    │
@@ -70,7 +70,7 @@ A multi-tenant AI receptionist for home-service businesses (plumbing, HVAC, elec
 | Backend | Python 3.12, FastAPI, async SQLAlchemy 2.0, Alembic |
 | Database | PostgreSQL |
 | Cache / queue | Redis |
-| AI | Claude Sonnet 4.6 via PydanticAI|
+| AI | Gemini 3.1 Flash Lite via OpenRouter + PydanticAI |
 | Telephony | Twilio SMS + Voice |
 | Auth | Auth0 |
 | Background | APScheduler |
@@ -86,7 +86,7 @@ A multi-tenant AI receptionist for home-service businesses (plumbing, HVAC, elec
 
 - **Tenant isolation by JWT, not query param.** Every dashboard route depends on `get_current_business_id`, which validates the Auth0 token against cached JWKS and resolves the business from `owner_auth0_id`. Tests include cross tenant guards so a token for business A cannot read business B's data.
 - **Signature-validated webhooks.** Every Twilio webhook is rejected unless the `X-Twilio-Signature` header matches the HMAC over the exact URL + form body. Strict mode locks the validator to `WEBHOOK_BASE_URL` to remove the X-Forwarded-Host forge-vector behind Railway's proxy.
-- **Cost-controlled agent.** PydanticAI runs with `UsageLimits(request_limit=8, total_tokens_limit=15000)` per turn. A per-business daily message cap (PT-anchored) skips the LLM and replies with a polite limit message if exceeded.
+- **Cost-controlled agent.** PydanticAI runs with `UsageLimits(request_limit=8, total_tokens_limit=60000)` per turn. A per-business daily message cap (PT-anchored) skips the LLM and replies with a polite limit message if exceeded.
 - **Tool-call traceability.** Every agent run logs the actual tool calls + returns to Sentry breadcrumbs and Railway logs, so "the agent said it cancelled" can be verified vs. "the agent actually called `cancel_job`."
 - **Hallucination-resistant prompt.** Operational rules explicitly forbid the agent from claiming a booking/cancellation/reschedule unless the corresponding tool was called in this turn and returned success.
 - **Healthcheck-friendly migrations.** Alembic runs on every Railway deploy via `preDeployCommand`. The container only starts serving once migrations apply cleanly.
@@ -103,7 +103,7 @@ docker compose up -d
 
 # 2. Backend
 uv sync
-cp .env.example .env   # then fill in Twilio, Auth0, Anthropic keys
+cp .env.example .env   # then fill in Twilio, Auth0, OpenRouter keys
 .venv/bin/alembic upgrade head
 .venv/bin/python seed.py            # creates Joe's Plumbing demo data
 .venv/bin/uvicorn app.main:app --reload

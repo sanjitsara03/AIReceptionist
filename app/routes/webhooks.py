@@ -301,7 +301,7 @@ async def _run_agent_isolated(conversation_id: int, business_id: int, customer_i
             raise RuntimeError("business, customer, or conversation missing mid-call")
 
         history = await load_history(db, conv)
-        deps = AgentDeps(db=db, business_id=business_id, business=business, customer=customer)
+        deps = AgentDeps(db=db, business_id=business_id, business=business, customer=customer, channel="voice")
         reply = sanitize_for_speech(await get_ai_reply(history, deps))
 
         await save_message(db, conversation_id, MessageDirection.outbound, reply)
@@ -361,7 +361,7 @@ async def inbound_sms(request: Request, db: AsyncSession = Depends(get_db)):
 
     # Load full history and get AI reply
     history = await load_history(db, conversation)
-    deps = AgentDeps(db=db, business_id=business_id, business=business, customer=customer)
+    deps = AgentDeps(db=db, business_id=business_id, business=business, customer=customer, channel="sms")
     reply = sanitize_for_speech(await get_ai_reply(history, deps))
 
     # Save outbound; raw int IDs work even if the agent rolled back.

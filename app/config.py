@@ -41,7 +41,9 @@ class Settings(BaseSettings):
     twilio_account_sid: str
     twilio_auth_token: str
     twilio_phone_number: str
-    anthropic_api_key: str
+    openrouter_api_key: str
+    # OpenRouter model slug the receptionist agent runs on
+    agent_model: str = "google/gemini-3.1-flash-lite"
     auth0_domain: str
     auth0_audience: str
     admin_secret: str

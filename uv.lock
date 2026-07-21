@@ -151,7 +151,6 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "alembic" },
-    { name = "anthropic" },
     { name = "apscheduler" },
     { name = "asyncpg" },
     { name = "fastapi" },
@@ -179,7 +178,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.18.4" },
-    { name = "anthropic", specifier = ">=0.103.1" },
     { name = "apscheduler", specifier = ">=3.11.2" },
     { name = "asyncpg", specifier = ">=0.31.0" },
     { name = "fastapi", specifier = ">=0.136.1" },

@@ -207,6 +207,7 @@ function normalizeCustomers(list, allJobs = []) {
       id: c.id,
       name: c.name,
       phone: c.phone,
+      address: c.address ?? null,
       created: fmtDate(c.created_at),
       jobs: c.job_count,
       lifetime,

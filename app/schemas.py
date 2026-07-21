@@ -100,6 +100,7 @@ class CustomerResponse(BaseModel):
     id: int
     name: str
     phone: str
+    address: str | None = None
     created_at: datetime
     job_count: int = 0
 
