@@ -196,7 +196,80 @@ async def test_book_job_rejects_unavailable_slot(db, business):
 
     cust = await _make_customer(db, business)
     out = await book_job(_ctx(db, business, cust), slots[0].id, "drain cleaning")
-    assert "no longer available" in out.lower()
+    assert "just taken" in out.lower()
+
+    # No job was created for the caller
+    jobs = (await db.execute(select(Job).where(Job.customer_id == cust.id))).scalars().all()
+    assert jobs == []
+
+
+async def test_book_job_same_slot_twice_is_idempotent(db, business):
+    # Regression: the agent re-called book_job on a later turn to "verify" its
+    # own booking. The old code told it the slot was gone (its own booking!)
+    # while the job silently stood. Now the repeat is a no-op re-confirmation.
+    slots = await _seed_slots(db, business, [3])
+    cust = await _make_customer(db, business)
+
+    await book_job(_ctx(db, business, cust), slots[0].id, "sink clog repair")
+    await db.commit()
+
+    out = await book_job(_ctx(db, business, cust), slots[0].id, "sink clog repair")
+    await db.commit()
+
+    assert "already" in out.lower()
+    assert "all set" in out.lower()
+    jobs = (await db.execute(select(Job).where(Job.customer_id == cust.id))).scalars().all()
+    assert len(jobs) == 1
+
+
+async def test_book_job_same_time_other_tech_is_idempotent(db, business):
+    # Regression: on the goodbye turn the agent re-booked the same TIME via a
+    # different technician's slot, producing two techs dispatched to one
+    # customer at one time. The guard matches on start_time, not slot id.
+    techs = (await db.execute(
+        select(Technician).where(Technician.business_id == business.id).order_by(Technician.id)
+    )).scalars().all()
+    same_time = datetime.now(timezone.utc) + timedelta(hours=3)
+    slot_a = TimeSlot(technician_id=techs[0].id, start_time=same_time,
+                      end_time=same_time + timedelta(hours=1), is_available=True)
+    slot_b = TimeSlot(technician_id=techs[1].id, start_time=same_time,
+                      end_time=same_time + timedelta(hours=1), is_available=True)
+    db.add_all([slot_a, slot_b])
+    await db.commit()
+
+    cust = await _make_customer(db, business)
+    await book_job(_ctx(db, business, cust), slot_a.id, "sink clog repair")
+    await db.commit()
+
+    out = await book_job(_ctx(db, business, cust), slot_b.id, "sink clog repair")
+    await db.commit()
+
+    assert "already" in out.lower()
+    jobs = (await db.execute(select(Job).where(Job.customer_id == cust.id))).scalars().all()
+    assert len(jobs) == 1
+    # The sibling tech's slot was NOT consumed by the failed re-book
+    fresh_b = (await db.execute(select(TimeSlot).where(TimeSlot.id == slot_b.id))).scalar_one()
+    assert fresh_b.is_available is True
+
+
+async def test_book_job_caps_upcoming_jobs_per_customer(db, business):
+    slots = await _seed_slots(db, business, [3, 5, 7, 9])
+    cust = await _make_customer(db, business)
+
+    for s, jt in zip(slots[:3], ["drain cleaning", "pipe repair", "leak detection"]):
+        out = await book_job(_ctx(db, business, cust), s.id, jt)
+        assert out.lower().startswith("booked")
+    await db.commit()
+
+    out = await book_job(_ctx(db, business, cust), slots[3].id, "garbage disposal")
+    await db.commit()
+
+    assert "maximum" in out.lower()
+    jobs = (await db.execute(select(Job).where(Job.customer_id == cust.id))).scalars().all()
+    assert len(jobs) == 3
+    # The 4th slot was not claimed
+    fresh = (await db.execute(select(TimeSlot).where(TimeSlot.id == slots[3].id))).scalar_one()
+    assert fresh.is_available is True
 
 
 async def test_book_job_rejects_slot_from_another_business(db, business, db_other_business):

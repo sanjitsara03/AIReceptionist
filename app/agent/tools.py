@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timezone
 from pydantic import BaseModel
 from pydantic_ai import RunContext
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import fmt_pt
@@ -130,6 +130,13 @@ async def check_availability(ctx: RunContext[AgentDeps]) -> str:
     )
 
 
+# Max non-cancelled future jobs one phone number can hold. Bounds both the
+# duplicate-booking failure mode and calendar-fill abuse from a single caller.
+MAX_UPCOMING_JOBS_PER_CUSTOMER = 3
+
+BOOKING_ACTIVE_STATUSES = [JobStatus.confirmed, JobStatus.pending, JobStatus.in_progress]
+
+
 async def book_job(ctx: RunContext[AgentDeps], slot_id: int, job_type: str) -> str:
     # Book a job for the caller ; slot must belong to THIS business.
     db = ctx.deps.db
@@ -139,7 +146,6 @@ async def book_job(ctx: RunContext[AgentDeps], slot_id: int, job_type: str) -> s
         .join(Technician, TimeSlot.technician_id == Technician.id)
         .where(
             TimeSlot.id == slot_id,
-            TimeSlot.is_available == True,
             Technician.business_id == ctx.deps.business_id,
         )
     )
@@ -147,6 +153,68 @@ async def book_job(ctx: RunContext[AgentDeps], slot_id: int, job_type: str) -> s
 
     if not slot:
         return "That time slot is no longer available. Please choose another."
+
+    # Idempotency guard: if this caller already holds an active job at this
+    # exact start time (this slot or a sibling technician's), a repeat
+    # book_job is a re-confirmation, not a new booking. Without this, a model
+    # that re-books to "verify" either duplicates the job on another tech's
+    # slot or is told its own booking made the slot unavailable.
+    existing = (await db.execute(
+        select(Job, TimeSlot)
+        .join(TimeSlot, Job.time_slot_id == TimeSlot.id)
+        .where(
+            Job.customer_id == ctx.deps.customer.id,
+            Job.business_id == ctx.deps.business_id,
+            Job.status.in_(BOOKING_ACTIVE_STATUSES),
+            TimeSlot.start_time == slot.start_time,
+        )
+    )).first()
+    if existing:
+        ex_job, ex_slot = existing
+        return (
+            f"Already booked: this customer already has a {ex_job.job_type} "
+            f"appointment for {fmt_pt(ex_slot.start_time, '%A %b %d at %I:%M %p')}. "
+            "No new booking was created and none is needed. Do NOT apologize and "
+            "do NOT say anything went wrong — just tell the customer they're all "
+            "set for that time."
+        )
+
+    if not slot.is_available:
+        return (
+            "That time slot was just taken by another customer. "
+            "Please offer a different time."
+        )
+
+    upcoming = (await db.execute(
+        select(func.count())
+        .select_from(Job)
+        .join(TimeSlot, Job.time_slot_id == TimeSlot.id)
+        .where(
+            Job.customer_id == ctx.deps.customer.id,
+            Job.business_id == ctx.deps.business_id,
+            Job.status.in_(BOOKING_ACTIVE_STATUSES),
+            TimeSlot.start_time >= datetime.now(timezone.utc),
+        )
+    )).scalar_one()
+    if upcoming >= MAX_UPCOMING_JOBS_PER_CUSTOMER:
+        return (
+            f"This phone number already has {upcoming} upcoming appointments, "
+            "which is the maximum. Tell the customer they can reschedule or "
+            "cancel an existing appointment, or call the office directly."
+        )
+
+    # Atomic claim: only flips the slot if it is still available, so two
+    # concurrent bookings can never both win the same slot.
+    claim = await db.execute(
+        update(TimeSlot)
+        .where(TimeSlot.id == slot.id, TimeSlot.is_available == True)
+        .values(is_available=False)
+    )
+    if claim.rowcount != 1:
+        return (
+            "That time slot was just taken by another customer. "
+            "Please offer a different time."
+        )
 
     estimate = _estimate_for(job_type)
     job = Job(
@@ -160,7 +228,6 @@ async def book_job(ctx: RunContext[AgentDeps], slot_id: int, job_type: str) -> s
         estimate=estimate,
     )
     db.add(job)
-    slot.is_available = False
     await db.flush()
 
     publish(ctx.deps.business_id, "job.created", {"job_id": job.id})
@@ -308,7 +375,17 @@ async def reschedule_job(ctx: RunContext[AgentDeps], job_id: int, new_slot_id: i
     if not new_slot:
         return "That time slot is not available. Please choose another."
 
-    # Free the previously held slot before claiming the new one.
+    # Atomically claim the new slot BEFORE freeing the old one, so a lost
+    # race leaves the existing appointment untouched.
+    claim = await db.execute(
+        update(TimeSlot)
+        .where(TimeSlot.id == new_slot.id, TimeSlot.is_available == True)
+        .values(is_available=False)
+    )
+    if claim.rowcount != 1:
+        return "That time slot is not available. Please choose another."
+
+    # Free the previously held slot now that the new one is secured.
     if job.time_slot_id:
         old_slot_result = await db.execute(select(TimeSlot).where(TimeSlot.id == job.time_slot_id))
         old_slot = old_slot_result.scalar_one_or_none()
@@ -317,7 +394,6 @@ async def reschedule_job(ctx: RunContext[AgentDeps], job_id: int, new_slot_id: i
 
     job.time_slot_id = new_slot.id
     job.technician_id = new_slot.technician_id
-    new_slot.is_available = False
     await db.flush()
 
     publish(ctx.deps.business_id, "job.updated", {"job_id": job.id})
