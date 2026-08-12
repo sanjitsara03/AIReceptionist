@@ -4,14 +4,6 @@ A multi-tenant AI receptionist for home-service businesses (plumbing, HVAC, elec
 
 ## Try the demo
 
-**Live dashboard:** https://romantic-magic-production-0f01.up.railway.app
-
-**Sign in as Joe's Plumbing (owner view):**
-
-| Email | Password |
-|---|---|
-| `joe@joesplumbing.com` | `gopdan-tobgig-8Depse` |
-
 **Talk to the AI receptionist:** call **(844) 593-1325** from any US phone. The agent will pick up, take your booking by voice, and you'll see the new appointment appear live on the dashboard above via Server-Sent Events.
 
 > SMS replies are currently paused while Twilio toll-free verification is in progress. Voice calls are fully operational. The dashboard is a live deployment, not a screenshot.
