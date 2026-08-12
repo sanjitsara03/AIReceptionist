@@ -6,7 +6,7 @@ A multi-tenant AI receptionist for home-service businesses (plumbing, HVAC, elec
 
 **Talk to the AI receptionist:** call **(844) 593-1325** from any US phone. The agent will pick up, take your booking by voice, and you'll see the new appointment appear live on the dashboard above via Server-Sent Events.
 
-> SMS replies are currently paused while Twilio toll-free verification is in progress. Voice calls are fully operational. The dashboard is a live deployment, not a screenshot.
+> SMS replies are currently paused while Twilio toll-free verification is in progress. Voice calls are fully operational. 
 
 ---
 
